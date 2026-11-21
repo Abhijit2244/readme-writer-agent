@@ -1080,40 +1080,11 @@ def index():
     let currentMarkdownText = "";
     let currentOutputFilename = "README.md";
 
-    // Auto-probe server environment key status on load
-    window.addEventListener('DOMContentLoaded', () => {
-      fetch('/health')
-        .then(res => res.json())
-        .then(data => {
-          const badge = document.getElementById('envKeyStatusBadge');
-          const input = document.getElementById('geminiApiKey');
-          if (!badge || !input) return;
-          if (data.gemini_env_configured) {
-            badge.className = 'badge badge-green';
-            badge.innerHTML = '🟢 Detected in .env / Vercel';
-            input.placeholder = 'Auto-loaded from .env (leave blank or enter override)';
-          } else {
-            badge.className = 'badge';
-            badge.style.background = 'rgba(210, 153, 34, 0.15)';
-            badge.style.color = '#e3b341';
-            badge.innerHTML = '⚪ Not in .env (enter key above)';
-            input.placeholder = 'AIzaSy... (enter your Gemini API key)';
-          }
-        })
-        .catch(e => console.warn('Health probe error:', e));
-    });
-
     function setEngine(engine) {
       currentEngine = engine;
       const isGemini = (engine === 'gemini');
       document.getElementById('btnEngineLocal').classList.toggle('active', !isGemini);
       document.getElementById('btnEngineGemini').classList.toggle('active', isGemini);
-      document.getElementById('geminiKeyContainer').style.display = isGemini ? 'block' : 'none';
-    }
-
-    function toggleApiKeyVisibility() {
-      const input = document.getElementById('geminiApiKey');
-      input.type = (input.type === 'password') ? 'text' : 'password';
     }
 
     function setMode(mode) {
@@ -1173,8 +1144,6 @@ def index():
       const term = document.getElementById('telemetryLog');
 
       const isGemini = (currentEngine === 'gemini');
-      const keyInput = document.getElementById('geminiApiKey');
-      const apiKey = keyInput ? keyInput.value.trim() : '';
 
       btn.disabled = true;
       spinner.style.display = 'inline-block';
@@ -1202,7 +1171,7 @@ def index():
             github_url: ghUrl,
             force: force,
             use_gemini: isGemini,
-            gemini_api_key: apiKey || null
+            gemini_api_key: null
           });
           term.innerHTML = `[AGENT] Fetching GitHub archive for: ${ghUrl}\\n[AGENT] Engine: ${isGemini ? '✨ Gemini 2.0 Flash AI' : '⚡ Local Deterministic AST'}\\n`;
 
@@ -1217,9 +1186,6 @@ def index():
           formData.append('file', fileInput.files[0]);
           formData.append('force', force);
           formData.append('use_gemini', isGemini);
-          if (apiKey) {
-            formData.append('gemini_api_key', apiKey);
-          }
           body = formData;
           term.innerHTML = `[AGENT] Uploading and extracting project archive safely...\\n[AGENT] Engine: ${isGemini ? '✨ Gemini 2.0 Flash AI' : '⚡ Local Deterministic AST'}\\n`;
 
@@ -1235,7 +1201,7 @@ def index():
             repo_path: localPath,
             force: force,
             use_gemini: isGemini,
-            gemini_api_key: apiKey || null
+            gemini_api_key: null
           });
           term.innerHTML = `[AGENT] Initiating inspection for local path: ${localPath}\\n[AGENT] Engine: ${isGemini ? '✨ Gemini 2.0 Flash AI' : '⚡ Local Deterministic AST'}\\n`;
         }

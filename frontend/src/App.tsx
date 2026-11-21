@@ -10,11 +10,9 @@ import {
   Copy,
   Download,
   Eye,
-  EyeOff,
   Code2,
   FileText,
   AlertTriangle,
-  CheckCircle2,
   XCircle,
   X,
   ExternalLink,
@@ -59,12 +57,9 @@ export default function App() {
   const [githubUrl, setGithubUrl] = useState<string>('https://github.com/Abhijit2244/readme-writer-agent');
   const [repoPath, setRepoPath] = useState<string>('');
   const [zipFile, setZipFile] = useState<File | null>(null);
-  const [geminiApiKey, setGeminiApiKey] = useState<string>('');
-  const [showApiKey, setShowApiKey] = useState<boolean>(false);
   const [forceOverwrite, setForceOverwrite] = useState<boolean>(false);
 
   // Status & Telemetry States
-  const [envKeyDetected, setEnvKeyDetected] = useState<boolean>(false);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [telemetryLogs, setTelemetryLogs] = useState<TelemetryLog[]>([]);
   const [result, setResult] = useState<GenerationResult | null>(null);
@@ -76,22 +71,13 @@ export default function App() {
   const telemetryEndRef = useRef<HTMLDivElement | null>(null);
   const previewCardRef = useRef<HTMLDivElement | null>(null);
 
-  // Initialize Mermaid and check server health for .env key detection
+  // Initialize Mermaid
   useEffect(() => {
     try {
       mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
     } catch (e) {
       console.warn('Mermaid initialization warning:', e);
     }
-
-    fetch('/health')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.gemini_env_configured) {
-          setEnvKeyDetected(true);
-        }
-      })
-      .catch((err) => console.warn('Health check query failed:', err));
   }, []);
 
   // Re-render Mermaid diagrams when new markdown content arrives
@@ -131,7 +117,6 @@ export default function App() {
     setTelemetryLogs([]);
 
     const isGemini = engine === 'gemini';
-    const apiKey = geminiApiKey.trim();
 
     setIsGenerating(true);
 
@@ -153,7 +138,6 @@ export default function App() {
           github_url: url,
           force: forceOverwrite,
           use_gemini: isGemini,
-          gemini_api_key: apiKey || null,
         });
         setTelemetryLogs([{ type: 'START', data: `Fetching GitHub archive for: ${url}` }]);
       } else if (mode === 'zip') {
@@ -167,7 +151,6 @@ export default function App() {
         formData.append('file', zipFile);
         formData.append('force', String(forceOverwrite));
         formData.append('use_gemini', String(isGemini));
-        if (apiKey) formData.append('gemini_api_key', apiKey);
         body = formData;
         setTelemetryLogs([{ type: 'START', data: `Uploading and extracting project archive safely...` }]);
       } else {
@@ -183,7 +166,6 @@ export default function App() {
           repo_path: path,
           force: forceOverwrite,
           use_gemini: isGemini,
-          gemini_api_key: apiKey || null,
         });
         setTelemetryLogs([{ type: 'START', data: `Initiating inspection for local path: ${path}` }]);
       }
@@ -403,57 +385,6 @@ export default function App() {
                 </div>
               </div>
             </div>
-
-            {/* Gemini Key Input Drawer */}
-            {engine === 'gemini' && (
-              <div className="api-key-box">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                  <label htmlFor="geminiApiKey" style={{ color: '#d2a8ff', fontWeight: 600, marginBottom: 0 }}>
-                    🔑 Gemini API Key
-                  </label>
-                  {envKeyDetected ? (
-                    <span className="badge badge-green">
-                      <CheckCircle2 size={12} /> Detected in .env / Vercel
-                    </span>
-                  ) : (
-                    <span
-                      className="badge"
-                      style={{ background: 'rgba(210, 153, 34, 0.15)', color: '#e3b341' }}
-                    >
-                      ⚪ Not in .env (enter key below)
-                    </span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                  <input
-                    type={showApiKey ? 'text' : 'password'}
-                    id="geminiApiKey"
-                    value={geminiApiKey}
-                    onChange={(e) => setGeminiApiKey(e.target.value)}
-                    placeholder={
-                      envKeyDetected
-                        ? 'Auto-loaded from .env (leave blank or enter override)'
-                        : 'AIzaSy... (enter your Gemini API key)'
-                    }
-                    style={{ borderColor: 'rgba(188, 140, 255, 0.4)' }}
-                  />
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => setShowApiKey(!showApiKey)}
-                    style={{ padding: '0 14px', fontSize: 13 }}
-                    title={showApiKey ? 'Hide Key' : 'Show Key'}
-                  >
-                    {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
-                  </button>
-                </div>
-                <div style={{ fontSize: 11.5, color: 'var(--text-muted)', marginTop: 8, lineHeight: 1.5 }}>
-                  🔒 <strong>Automatic .env Loading:</strong> The agent automatically reads{' '}
-                  <code>GEMINI_API_KEY</code> or <code>GOOGLE_API_KEY</code> directly from your <code>.env</code> file
-                  or Vercel Environment Variables. You can leave this input blank, or enter a custom key to override it.
-                </div>
-              </div>
-            )}
           </div>
 
           {/* Guardrail Option Row */}
