@@ -36,7 +36,9 @@ except ImportError:
     pass
 
 from fastapi import FastAPI, HTTPException, Request, Response, Query, UploadFile, File, Form
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -55,6 +57,16 @@ app = FastAPI(
     version="1.0.0"
 )
 
+# --------------------------------------------------------------------------
+# CORS MIDDLEWARE (Supports decoupled React SPA during dev & production)
+# --------------------------------------------------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # --------------------------------------------------------------------------
 # SECURITY MIDDLEWARE (CSP, Anti-Clickjacking, MIME Sniffing Protection)
@@ -77,6 +89,14 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+# Dist directory resolution for decoupled React Frontend
+DIST_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "dist"))
+DIST_INDEX = os.path.join(DIST_DIR, "index.html")
+DIST_ASSETS = os.path.join(DIST_DIR, "assets")
+
+if os.path.exists(DIST_ASSETS):
+    app.mount("/assets", StaticFiles(directory=DIST_ASSETS), name="assets")
 
 
 # --------------------------------------------------------------------------
@@ -380,9 +400,11 @@ def download_readme(session_id: str = Query(..., description="Session identifier
 # --------------------------------------------------------------------------
 # SINGLE-PAGE WEB INTERFACE (HTML, CSS, JAVASCRIPT)
 # --------------------------------------------------------------------------
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 def index():
-    """Renders the single-page responsive web dashboard."""
+    """Serves the decoupled React frontend dashboard (or embedded fallback)."""
+    if os.path.exists(DIST_INDEX):
+        return FileResponse(DIST_INDEX)
     html_content = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -697,7 +719,7 @@ def index():
     /* Stats Bar */
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: 1.05fr 0.85fr 1fr 0.95fr 1.35fr;
       gap: 14px;
       margin-bottom: 24px;
     }
@@ -708,7 +730,7 @@ def index():
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 10px;
-      padding: 16px 14px;
+      padding: 16px 18px;
       text-align: center;
       display: flex;
       flex-direction: column;
@@ -725,6 +747,21 @@ def index():
       font-family: 'JetBrains Mono', monospace;
       width: 100%;
       word-break: break-word;
+    }
+    .stat-filename-pill {
+      font-size: 13px;
+      font-weight: 600;
+      line-height: 1.4;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      max-width: 100%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      letter-spacing: -0.2px;
+      color: #e6edf3;
     }
     .stat-label {
       font-size: 11.5px;
@@ -998,7 +1035,7 @@ def index():
         <div class="stat-label">Safety Decision</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value" id="statFile" style="font-size: 14px; font-weight: 600; line-height: 1.35; padding: 0 6px; word-break: break-all;">README.md</div>
+        <div class="stat-value stat-filename-pill" id="statFile" title="README.md">README.md</div>
         <div class="stat-label">Target File</div>
       </div>
     </div>
@@ -1148,6 +1185,9 @@ def index():
 
       btn.disabled = true;
       spinner.style.display = 'inline-block';
+      // Immediately hide previous results so stale content is never visible during a new run
+      document.getElementById('statsRow').style.display = 'none';
+      document.getElementById('previewCard').style.display = 'none';
       document.getElementById('telemetryCard').style.display = 'block';
       term.innerHTML = `[AGENT] Initializing new documentation run...\\n`;
       document.getElementById('telemetryCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -1314,6 +1354,17 @@ def index():
 </html>
 """
     return HTMLResponse(content=html_content)
+
+
+@app.get("/{full_path:path}")
+def serve_react_assets(full_path: str):
+    """Fallback route to serve static files from React build directory or SPA index."""
+    candidate = os.path.join(DIST_DIR, full_path)
+    if os.path.exists(candidate) and os.path.isfile(candidate):
+        return FileResponse(candidate)
+    if os.path.exists(DIST_INDEX):
+        return FileResponse(DIST_INDEX)
+    raise HTTPException(status_code=404, detail="File not found")
 
 
 if __name__ == "__main__":

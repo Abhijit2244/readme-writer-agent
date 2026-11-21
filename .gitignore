@@ -12,3 +12,10 @@ __pycache__/
 .venv/
 venv/
 env/
+
+# Node & Frontend dependencies
+node_modules/
+frontend/node_modules/
+.eslintcache
+
+
