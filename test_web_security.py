@@ -65,6 +65,16 @@ class TestWebSecurityAndEndpoints(unittest.TestCase):
             self.assertFalse(is_safe_root)
             self.assertIn("root filesystem", err_root.lower())
 
+    def test_03b_cloud_blocks_unreachable_device_paths(self):
+        # Simulate Vercel environment variable
+        os.environ["VERCEL"] = "1"
+        try:
+            is_safe, _, err = SecurityValidator.validate_repo_path(r"C:\Users\COM\Desktop\sample\my-repo")
+            self.assertFalse(is_safe)
+            self.assertIn("cannot be accessed on cloud-hosted Vercel", err)
+        finally:
+            os.environ.pop("VERCEL", None)
+
     def test_04_security_allows_valid_repository_directory(self):
         is_safe, canonical, err = SecurityValidator.validate_repo_path(self.temp_dir.name)
         self.assertTrue(is_safe)

@@ -90,6 +90,14 @@ class SecurityValidator:
 
         clean_input = path_input.strip().strip("\"'").strip()
 
+        # Cloud Environment Detection: If hosted on Vercel/serverless Linux and user sends a local Windows path
+        if (os.name != "nt" or os.environ.get("VERCEL")) and re.match(r"^[A-Za-z]:[\\/]", clean_input):
+            return False, "", (
+                f"Local filesystem path ('{clean_input}') cannot be accessed on cloud-hosted Vercel. "
+                "The project is not cloned on the remote cloud device. "
+                "Please use the 'GitHub URL' tab or 'Upload Project (.zip)' tab instead!"
+            )
+
         try:
             canonical_path = os.path.realpath(os.path.abspath(clean_input))
         except Exception as e:

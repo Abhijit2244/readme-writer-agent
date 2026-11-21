@@ -105,7 +105,24 @@ python main.py --help
 
 ```bash
 python test_readme_agent.py
+python test_web_security.py
 ```
+
+---
+
+## 🌐 Web Application & Vercel Cloud Hosting
+
+The project includes an interactive FastAPI web dashboard supporting both local and serverless Vercel cloud hosting:
+
+```bash
+# Start local web dashboard (http://127.0.0.1:8000)
+python server.py
+```
+
+> [!IMPORTANT]
+> **Filesystem Boundary Notice**: Local filesystem paths (e.g. `C:\Users\...` or `/home/...`) only work when running the web server locally on your own device. When using a cloud-hosted Vercel deployment (`https://your-app.vercel.app`), the serverless container cannot reach your private computer's hard drive. On Vercel, please use:
+> 1. **🌐 GitHub Repository URL**: Ingests public repositories directly via GitHub's archive API.
+> 2. **📦 Upload Project (.zip)**: Upload any local folder as a `.zip` archive with automated Zip-Slip path traversal defense.
 
 ---
 
