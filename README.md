@@ -1,10 +1,10 @@
 # 🤖 Readme Writer Agent
 
-**Streamlined, production-grade Python solution engineered with modern design patterns.**
+**Streamlined, production-grade Python solution engineered with Docker, Fastapi, Pydantic.**
 
 Readme Writer Agent is a modular, high-reliability software system built with Python. It provides clean separation of concerns, comprehensive automated testing, and deterministic execution tailored for developers and teams demanding scalable performance.
 
-< [**Project Repository**](https://github.com/Abhijit2244/readme-writer-agent) >
+< [🚀 **Live Demo & Project Repository**](https://github.com/Abhijit2244/readme-writer-agent) >
 
 Whether you are integrating into existing CI/CD workflows, developing custom modules, or deploying standalone services, Readme Writer Agent delivers an intuitive, well-documented experience.
 
@@ -18,7 +18,7 @@ Whether you are integrating into existing CI/CD workflows, developing custom mod
 - Clean separation of domain logic, state management, and output serialization.
 
 ### ⚙️ Component & Logic Management
-- Fully modular architecture built on Native Architecture.
+- Fully modular architecture built on Docker, Fastapi, Pydantic.
 - Strictly typed models ensuring robust contract validation.
 - Automated detection of manifests, dependencies, and environment configurations.
 
@@ -40,8 +40,13 @@ Whether you are integrating into existing CI/CD workflows, developing custom mod
 | :----------------------- | :---------------------------------------------- |
 | Python                   | Core application runtime & logic                |
 | pip                      | Package management & dependency resolution      |
+| Docker                   | Application framework & service orchestration   |
+| Fastapi                  | Application framework & service orchestration   |
+| Pydantic                 | Application framework & service orchestration   |
 | pytest / unittest        | Automated test runner & regression verification |
 | colorama                 | Domain utility & functional processing          |
+| fastapi                  | Domain utility & functional processing          |
+| pydantic                 | Domain utility & functional processing          |
 | python-dotenv            | Domain utility & functional processing          |
 | GitHub Flavored Markdown | Standardized documentation specification        |
 | Mermaid.js               | Interactive architectural flowcharts            |
@@ -105,24 +110,7 @@ python main.py --help
 
 ```bash
 python test_readme_agent.py
-python test_web_security.py
 ```
-
----
-
-## 🌐 Web Application & Vercel Cloud Hosting
-
-The project includes an interactive FastAPI web dashboard supporting both local and serverless Vercel cloud hosting:
-
-```bash
-# Start local web dashboard (http://127.0.0.1:8000)
-python server.py
-```
-
-> [!IMPORTANT]
-> **Filesystem Boundary Notice**: Local filesystem paths (e.g. `C:\Users\...` or `/home/...`) only work when running the web server locally on your own device. When using a cloud-hosted Vercel deployment (`https://your-app.vercel.app`), the serverless container cannot reach your private computer's hard drive. On Vercel, please use:
-> 1. **🌐 GitHub Repository URL**: Ingests public repositories directly via GitHub's archive API.
-> 2. **📦 Upload Project (.zip)**: Upload any local folder as a `.zip` archive with automated Zip-Slip path traversal defense.
 
 ---
 
@@ -133,18 +121,12 @@ readme-writer-agent/
 ├── .env
 ├── .env.example
 ├── .gitignore
+├── .vercelignore
+├── Dockerfile
 ├── README.md
 ├── main.py
 ├── requirements.txt
-├── test_readme_agent.py
-└── core/
-    ├── __init__.py
-    ├── agent.py
-    ├── analyzer.py
-    ├── generator.py
-    ├── models.py
-    ├── safety.py
-    └── scanner.py
+└── ... (6 more items)
 ```
 
 ---
@@ -194,10 +176,10 @@ The table below details the key functions, classes, and methods discovered acros
 flowchart TD
     Client(["Client / User Request"]) --> Gateway["Execution Interface"]
     Gateway --> Router{"Core Orchestrator"}
-    Router --> Mod_1["__init__.py"]
-    Router --> Mod_2["agent.py"]
-    Router --> Mod_3["analyzer.py"]
-    Router --> Mod_4["generator.py"]
+    Router --> Mod_1["index.py"]
+    Router --> Mod_2["__init__.py"]
+    Router --> Mod_3["agent.py"]
+    Router --> Mod_4["analyzer.py"]
     Mod_1 --> Output(["Validated Output / Report"])
 ```
 
