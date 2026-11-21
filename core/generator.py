@@ -32,14 +32,16 @@ class ReadmeGenerator:
     Synthesizes structural repository metadata into production-grade GitHub-Flavored Markdown.
     """
 
-    def __init__(self, metadata: RepositoryMetadata):
+    def __init__(self, metadata: RepositoryMetadata, enhancer: Optional[Any] = None):
         """
         Initializes the README generator with repository inspection metadata.
 
         Args:
             metadata: RepositoryMetadata populated by scanner and code analyzer.
+            enhancer: Optional GeminiEnhancer for AI summary and commentary polishing.
         """
         self.metadata = metadata
+        self.enhancer = enhancer
 
     def generate_markdown(self) -> str:
         """
@@ -94,14 +96,25 @@ class ReadmeGenerator:
         else:
             emoji = "🚀"
 
+        default_synopsis = (
+            f"{repo_title} is a modular, high-reliability software system built with {primary_lang}. "
+            f"It provides clean separation of concerns, comprehensive automated testing, and deterministic execution "
+            f"tailored for developers and teams demanding scalable performance."
+        )
+
+        # Enhance overview with Gemini AI if enabled, else use local deterministic synopsis
+        if self.enhancer and getattr(self.enhancer, "is_available", lambda: False)():
+            tech_stack_desc = f"{primary_lang} with {frameworks_str}"
+            synopsis = self.enhancer.enhance_executive_summary(repo_title, tech_stack_desc, default_synopsis)
+        else:
+            synopsis = default_synopsis
+
         lines = [
             f"# {emoji} {repo_title}",
             "",
             f"**Streamlined, production-grade {primary_lang} solution engineered with {frameworks_str}.**",
             "",
-            f"{repo_title} is a modular, high-reliability software system built with {primary_lang}. "
-            f"It provides clean separation of concerns, comprehensive automated testing, and deterministic execution "
-            f"tailored for developers and teams demanding scalable performance.",
+            synopsis,
             "",
             f"< [🚀 **Live Demo & Project Repository**](https://github.com/YOUR_USERNAME/{self.metadata.repo_name}) >",
             "",

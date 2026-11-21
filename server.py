@@ -83,10 +83,14 @@ class GenerateRequest(BaseModel):
     repo_path: str = Field(..., description="Local filesystem path to target repository")
     force: bool = Field(False, description="If True, authorizes overwriting existing README.md")
     custom_output_name: Optional[str] = Field(None, description="Optional custom filename for generated markdown")
+    use_gemini: bool = Field(False, description="Toggle Gemini AI enhancement mode")
+    gemini_api_key: Optional[str] = Field(None, description="Optional explicit Gemini API key")
 
 class GitHubGenerateRequest(BaseModel):
     github_url: str = Field(..., description="Public GitHub repository URL (e.g. https://github.com/owner/repo)")
     force: bool = Field(False, description="If True, authorizes overwriting existing README.md")
+    use_gemini: bool = Field(False, description="Toggle Gemini AI enhancement mode")
+    gemini_api_key: Optional[str] = Field(None, description="Optional explicit Gemini API key")
 
 
 # --------------------------------------------------------------------------
@@ -98,7 +102,13 @@ SESSION_CACHE: Dict[str, Dict[str, Any]] = {}
 # --------------------------------------------------------------------------
 # HELPER: RUN AGENT ON DIRECTORY & CACHE RESULT
 # --------------------------------------------------------------------------
-def _execute_agent_on_dir(target_dir: str, force: bool, custom_output_name: Optional[str] = None):
+def _execute_agent_on_dir(
+    target_dir: str,
+    force: bool,
+    custom_output_name: Optional[str] = None,
+    use_gemini: bool = False,
+    gemini_api_key: Optional[str] = None
+):
     telemetry_logs: List[Dict[str, Any]] = []
 
     def event_collector(event_type: str, data: Any):
@@ -113,6 +123,8 @@ def _execute_agent_on_dir(target_dir: str, force: bool, custom_output_name: Opti
     result = agent.run(
         repo_path=target_dir,
         force=force,
+        use_gemini=use_gemini,
+        gemini_api_key=gemini_api_key,
         custom_output_name=custom_output_name
     )
 
@@ -126,6 +138,7 @@ def _execute_agent_on_dir(target_dir: str, force: bool, custom_output_name: Opti
     return {
         "success": True,
         "session_id": session_id,
+        "engine_mode": "Gemini 2.0 Flash AI" if use_gemini else "Local Deterministic AST",
         "output_path": result.output_path,
         "output_filename": os.path.basename(result.output_path),
         "was_overwritten": result.was_overwritten,
@@ -198,7 +211,13 @@ def generate_readme(req: GenerateRequest):
         raise HTTPException(status_code=400, detail=f"Security Validation Blocked: {error_msg}")
 
     try:
-        return _execute_agent_on_dir(canonical_path, force=req.force, custom_output_name=req.custom_output_name)
+        return _execute_agent_on_dir(
+            canonical_path,
+            force=req.force,
+            custom_output_name=req.custom_output_name,
+            use_gemini=req.use_gemini,
+            gemini_api_key=req.gemini_api_key
+        )
     except Exception as e:
         logger.error(f"Generation failure: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
@@ -255,7 +274,12 @@ def generate_readme_from_github(req: GitHubGenerateRequest):
         if len(inner_entries) == 1 and os.path.isdir(os.path.join(extract_dest, inner_entries[0])):
             repo_root = os.path.join(extract_dest, inner_entries[0])
 
-        return _execute_agent_on_dir(repo_root, force=req.force)
+        return _execute_agent_on_dir(
+            repo_root,
+            force=req.force,
+            use_gemini=req.use_gemini,
+            gemini_api_key=req.gemini_api_key
+        )
 
     except HTTPException:
         raise
@@ -274,7 +298,9 @@ def generate_readme_from_github(req: GitHubGenerateRequest):
 @app.post("/api/upload-zip")
 async def generate_readme_from_zip(
     file: UploadFile = File(...),
-    force: bool = Form(False)
+    force: bool = Form(False),
+    use_gemini: bool = Form(False),
+    gemini_api_key: Optional[str] = Form(None)
 ):
     """
     Accepts a project .zip archive uploaded directly from the browser,
@@ -307,7 +333,12 @@ async def generate_readme_from_zip(
         if len(inner_entries) == 1 and os.path.isdir(os.path.join(extract_dest, inner_entries[0])):
             repo_root = os.path.join(extract_dest, inner_entries[0])
 
-        return _execute_agent_on_dir(repo_root, force=force)
+        return _execute_agent_on_dir(
+            repo_root,
+            force=force,
+            use_gemini=use_gemini,
+            gemini_api_key=gemini_api_key
+        )
 
     except HTTPException:
         raise
@@ -522,6 +553,73 @@ def index():
       background: rgba(88, 166, 255, 0.15);
       border-color: var(--accent-blue);
     }
+    /* Engine Toggle Styles */
+    .engine-toggle-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 6px;
+    }
+    @media (max-width: 768px) {
+      .engine-toggle-group { grid-template-columns: 1fr; }
+    }
+    .engine-btn {
+      padding: 14px 18px;
+      background: #1c2128;
+      border: 2px solid var(--card-border);
+      border-radius: 10px;
+      color: var(--text-muted);
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+      user-select: none;
+    }
+    .engine-btn:hover {
+      border-color: #58a6ff;
+      background: rgba(88, 166, 255, 0.05);
+    }
+    .engine-btn.active {
+      background: rgba(46, 160, 67, 0.12);
+      border-color: #3fb950;
+      color: #f0f6fc;
+      box-shadow: 0 0 12px rgba(46, 160, 67, 0.25);
+    }
+    .engine-btn.engine-gemini.active {
+      background: rgba(188, 140, 255, 0.12);
+      border-color: var(--accent-purple);
+      color: #f0f6fc;
+      box-shadow: 0 0 12px rgba(188, 140, 255, 0.25);
+    }
+    .engine-btn-title {
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .engine-btn-sub {
+      font-size: 11.5px;
+      color: var(--text-muted);
+      font-weight: 400;
+      line-height: 1.4;
+    }
+    .engine-btn.active .engine-btn-sub {
+      color: #c9d1d9;
+    }
+    .api-key-box {
+      background: rgba(188, 140, 255, 0.08);
+      border: 1px solid rgba(188, 140, 255, 0.3);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-top: 14px;
+      display: none;
+      animation: fadeIn 0.25s ease-in-out;
+    }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+
     .options-row {
       display: flex;
       align-items: center;
@@ -824,6 +922,38 @@ def index():
         </div>
       </div>
 
+      <!-- GENERATION ENGINE TOGGLE (Local Deterministic vs Gemini AI) -->
+      <div style="margin-top: 20px; border-top: 1px solid var(--card-border); padding-top: 16px;">
+        <label style="font-weight: 600; font-size: 13.5px; color: #f0f6fc; margin-bottom: 8px; display: block;">
+          ⚡ Analysis & Synthesis Engine:
+        </label>
+        <div class="engine-toggle-group">
+          <div class="engine-btn active" id="btnEngineLocal" onclick="setEngine('local')">
+            <div class="engine-btn-title">⚡ Local Deterministic AST Mode</div>
+            <div class="engine-btn-sub">100% Offline • Free & Instant • Zero API keys required • Direct Python AST extraction</div>
+          </div>
+          <div class="engine-btn engine-gemini" id="btnEngineGemini" onclick="setEngine('gemini')">
+            <div class="engine-btn-title">✨ Gemini 2.0 Flash AI Mode</div>
+            <div class="engine-btn-sub">Google Gemini AI • Enriches undocumented functions & synthesizes executive summaries</div>
+          </div>
+        </div>
+
+        <!-- GEMINI API KEY INPUT (Visible when Gemini mode selected) -->
+        <div id="geminiKeyContainer" class="api-key-box">
+          <label for="geminiApiKey" style="color: #d2a8ff; font-weight: 600; display: flex; justify-content: space-between;">
+            <span>🔑 Gemini API Key</span>
+            <span style="font-weight: 400; color: var(--text-muted); font-size: 11px;">Optional if set in server .env or Vercel</span>
+          </label>
+          <div style="display: flex; gap: 8px; margin-top: 6px;">
+            <input type="password" id="geminiApiKey" placeholder="AIzaSy... (leave blank to use server environment key)" style="border-color: rgba(188, 140, 255, 0.4);">
+            <button type="button" class="btn-secondary" onclick="toggleApiKeyVisibility()" style="padding: 0 14px; font-size: 13px;" title="Show/Hide API Key">👁️</button>
+          </div>
+          <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 8px;">
+            🔒 <strong>Privacy & Resilience:</strong> Key is passed securely for your session and never logged. Automatic fallback to Local AST mode occurs if API quota is reached or network is unreachable.
+          </div>
+        </div>
+      </div>
+
       <div class="options-row">
         <label class="toggle-label">
           <input type="checkbox" id="forceOverwrite">
@@ -847,6 +977,10 @@ def index():
 
     <!-- METRICS BAR (Hidden until generated) -->
     <div id="statsRow" class="stats-grid" style="display: none;">
+      <div class="stat-card">
+        <div class="stat-value" id="statEngine" style="font-size: 17px; color: #7ee787;">⚡ Local AST</div>
+        <div class="stat-label">Active Engine</div>
+      </div>
       <div class="stat-card">
         <div class="stat-value" id="statFiles">0</div>
         <div class="stat-label">Sections Built</div>
@@ -901,9 +1035,23 @@ def index():
     mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
 
     let currentMode = 'github';
+    let currentEngine = 'local';
     let currentSessionId = null;
     let currentMarkdownText = "";
     let currentOutputFilename = "README.md";
+
+    function setEngine(engine) {
+      currentEngine = engine;
+      const isGemini = (engine === 'gemini');
+      document.getElementById('btnEngineLocal').classList.toggle('active', !isGemini);
+      document.getElementById('btnEngineGemini').classList.toggle('active', isGemini);
+      document.getElementById('geminiKeyContainer').style.display = isGemini ? 'block' : 'none';
+    }
+
+    function toggleApiKeyVisibility() {
+      const input = document.getElementById('geminiApiKey');
+      input.type = (input.type === 'password') ? 'text' : 'password';
+    }
 
     function setMode(mode) {
       currentMode = mode;
@@ -949,6 +1097,9 @@ def index():
       const spinner = document.getElementById('genSpinner');
       const term = document.getElementById('telemetryLog');
 
+      const isGemini = (currentEngine === 'gemini');
+      const apiKey = document.getElementById('geminiApiKey').value.trim();
+
       btn.disabled = true;
       spinner.style.display = 'inline-block';
       document.getElementById('telemetryCard').style.display = 'block';
@@ -966,8 +1117,13 @@ def index():
           }
           endpoint = '/api/generate-github';
           headers = { 'Content-Type': 'application/json' };
-          body = JSON.stringify({ github_url: ghUrl, force: force });
-          term.innerHTML = `[AGENT] Fetching GitHub archive for: ${ghUrl}\\n`;
+          body = JSON.stringify({
+            github_url: ghUrl,
+            force: force,
+            use_gemini: isGemini,
+            gemini_api_key: apiKey || null
+          });
+          term.innerHTML = `[AGENT] Fetching GitHub archive for: ${ghUrl}\\n[AGENT] Engine: ${isGemini ? '✨ Gemini 2.0 Flash AI' : '⚡ Local Deterministic AST'}\\n`;
 
         } else if (currentMode === 'zip') {
           const fileInput = document.getElementById('zipFile');
@@ -979,8 +1135,12 @@ def index():
           const formData = new FormData();
           formData.append('file', fileInput.files[0]);
           formData.append('force', force);
+          formData.append('use_gemini', isGemini);
+          if (apiKey) {
+            formData.append('gemini_api_key', apiKey);
+          }
           body = formData;
-          term.innerHTML = `[AGENT] Uploading and extracting project archive safely...\\n`;
+          term.innerHTML = `[AGENT] Uploading and extracting project archive safely...\\n[AGENT] Engine: ${isGemini ? '✨ Gemini 2.0 Flash AI' : '⚡ Local Deterministic AST'}\\n`;
 
         } else {
           const localPath = document.getElementById('repoPath').value.trim();
@@ -990,8 +1150,13 @@ def index():
           }
           endpoint = '/api/generate';
           headers = { 'Content-Type': 'application/json' };
-          body = JSON.stringify({ repo_path: localPath, force: force });
-          term.innerHTML = `[AGENT] Initiating inspection for local path: ${localPath}\\n`;
+          body = JSON.stringify({
+            repo_path: localPath,
+            force: force,
+            use_gemini: isGemini,
+            gemini_api_key: apiKey || null
+          });
+          term.innerHTML = `[AGENT] Initiating inspection for local path: ${localPath}\\n[AGENT] Engine: ${isGemini ? '✨ Gemini 2.0 Flash AI' : '⚡ Local Deterministic AST'}\\n`;
         }
 
         const res = await fetch(endpoint, {
@@ -1018,6 +1183,11 @@ def index():
 
         // Update stats
         document.getElementById('statsRow').style.display = 'grid';
+        const engineElem = document.getElementById('statEngine');
+        if (engineElem) {
+          engineElem.innerText = data.engine_mode || (isGemini ? '✨ Gemini 2.0' : '⚡ Local AST');
+          engineElem.style.color = (data.engine_mode && data.engine_mode.includes('Gemini')) ? '#d2a8ff' : '#7ee787';
+        }
         document.getElementById('statFiles').innerText = data.sections_included.length;
         document.getElementById('statEntities').innerText = data.entities_documented_count;
         document.getElementById('statStatus').innerText = data.was_overwritten ? 'Overwritten' : (data.saved_as_alternate ? 'Preserved' : 'Clean');
@@ -1051,11 +1221,11 @@ def index():
         document.getElementById('previewCard').style.display = 'block';
 
         if (data.saved_as_alternate) {
-          showAlert(`🛡️ <strong>Safety Preservation Active:</strong> An existing README was detected! The original file was preserved, and your new documentation was saved as <code>${data.output_filename}</code>.`, 'warn');
+          showAlert(`🛡️ <strong>Safety Preservation Active:</strong> An existing README was detected! The original file was preserved, and your new documentation was saved as <code>${data.output_filename}</code> [${data.engine_mode}].`, 'warn');
         } else if (data.was_overwritten) {
-          showAlert(`⚠️ <strong>Explicit Overwrite:</strong> <code>${data.output_filename}</code> was overwritten as authorized via the <code>--force</code> setting.`, 'warn');
+          showAlert(`⚠️ <strong>Explicit Overwrite:</strong> <code>${data.output_filename}</code> was overwritten as authorized via the <code>--force</code> setting [${data.engine_mode}].`, 'warn');
         } else {
-          showAlert(`🎉 <strong>Success!</strong> Publication-ready documentation generated at <code>${data.output_filename}</code> with ${data.entities_documented_count} documented components.`, 'success');
+          showAlert(`🎉 <strong>Success!</strong> Publication-ready documentation generated at <code>${data.output_filename}</code> with ${data.entities_documented_count} documented components via ${data.engine_mode}.`, 'success');
         }
 
         document.getElementById('previewCard').scrollIntoView({ behavior: 'smooth' });

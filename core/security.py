@@ -46,9 +46,9 @@ class SecurityValidator:
     # High-confidence credential and API key regex patterns
     SECRET_PATTERNS: List[Tuple[str, re.Pattern]] = [
         # Google AI Studio / Gemini API Key (AQ. authorization tokens)
-        ("Gemini-Auth-Token", re.compile(r"AQ\.[A-Za-z0-9_-]{35,}")),
+        ("Gemini-Auth-Token", re.compile(r"AQ\.[A-Za-z0-9_-]{30,}")),
         # Google Cloud Standard API Key (AIza...)
-        ("Google-API-Key", re.compile(r"AIza[0-9A-Za-z-_]{35}")),
+        ("Google-API-Key", re.compile(r"AIza[0-9A-Za-z-_]{25,}")),
         # OpenAI Secret Key (sk-...)
         ("OpenAI-Key", re.compile(r"sk-[A-Za-z0-9_-]{20,}")),
         # GitHub Personal Access Token (classic & fine-grained)
@@ -207,7 +207,9 @@ class SecurityValidator:
 
         clean_url = url.strip().rstrip("/")
         # Support https://github.com/owner/repo or git@github.com:owner/repo
-        match = re.search(r"github\.com[/:]([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$", clean_url)
+        match = re.match(r"^(?:https?://)?(?:www\.)?github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$", clean_url)
+        if not match:
+            match = re.match(r"^git@github\.com:([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+?)(?:\.git)?$", clean_url)
         if not match:
             return False, "", "", "Invalid GitHub URL format. Expected: 'https://github.com/owner/repository'."
 

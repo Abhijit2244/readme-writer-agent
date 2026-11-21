@@ -21,14 +21,16 @@ class CodeAnalyzer:
     Statically analyzes source code files to extract entities and generate functional summaries.
     """
 
-    def __init__(self, repo_path: str):
+    def __init__(self, repo_path: str, enhancer: Optional[Any] = None):
         """
         Initializes the code analyzer.
 
         Args:
             repo_path: Filesystem path to root directory of the inspected repository.
+            enhancer: Optional GeminiEnhancer instance for LLM-powered commentary synthesis.
         """
         self.repo_path = os.path.abspath(repo_path)
+        self.enhancer = enhancer
 
     def analyze_file(self, rel_path: str) -> Optional[ModuleAnalysis]:
         """
@@ -329,5 +331,12 @@ class CodeAnalyzer:
 
         # Default fallback description
         if parent_class:
-            return f"Member method of {parent_class} providing {joined_words} capabilities."
-        return f"Core {entity_type} implementing {joined_words} operations."
+            base_comment = f"Member method of {parent_class} providing {joined_words} capabilities."
+        else:
+            base_comment = f"Core {entity_type} implementing {joined_words} operations."
+
+        # Rule 3: If Gemini AI enhancer is active and function lacked a docstring, enrich with AI
+        if self.enhancer and getattr(self.enhancer, "is_available", lambda: False)():
+            return self.enhancer.enhance_commentary(entity_name, f"{entity_type} {entity_name}", base_comment)
+
+        return base_comment

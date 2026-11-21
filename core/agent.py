@@ -22,6 +22,7 @@ from core.analyzer import CodeAnalyzer
 from core.safety import ReadmeSafetyController
 from core.generator import ReadmeGenerator
 from core.security import SecurityValidator
+from core.llm import GeminiEnhancer
 
 
 class ReadmeWriterAgent:
@@ -58,23 +59,33 @@ class ReadmeWriterAgent:
             except Exception:
                 pass
 
-    def run(self, repo_path: str, force: bool = False, custom_output_name: Optional[str] = None) -> ReadmeGenerationResult:
+    def run(
+        self,
+        repo_path: str,
+        force: bool = False,
+        use_gemini: bool = False,
+        gemini_api_key: Optional[str] = None,
+        custom_output_name: Optional[str] = None
+    ) -> ReadmeGenerationResult:
         """
         Executes the end-to-end README generation workflow.
 
         Operational Lifecycle:
         1. [VALIDATION]: Verifies the target repository path exists and is a directory.
-        2. [SCANNING]: Crawls directory tree, filters junk folders, detects tech stack.
-        3. [CODE ANALYSIS]: Parses source code via AST, extracts classes, functions, docstrings,
-           and synthesizes functional commentary for each entity.
-        4. [SAFETY CHECK]: Inspects if README.md exists. If it exists and force=False,
+        2. [AI MODE RESOLUTION]: Initializes Gemini enhancer if use_gemini=True, else local mode.
+        3. [SCANNING]: Crawls directory tree, filters junk folders, detects tech stack.
+        4. [CODE ANALYSIS]: Parses source code via AST, extracts classes, functions, docstrings,
+           and synthesizes functional commentary (AI enriched if active).
+        5. [SAFETY CHECK]: Inspects if README.md exists. If it exists and force=False,
            preserves original README and redirects output to README.generated.md!
-        5. [SYNTHESIS]: Compiles Mermaid diagrams, ASCII trees, function tables, and guides.
-        6. [PERSISTENCE]: Writes the markdown to disk safely and returns result metrics.
+        6. [SYNTHESIS]: Compiles Mermaid diagrams, ASCII trees, function tables, and guides.
+        7. [PERSISTENCE]: Writes the markdown to disk safely and returns result metrics.
 
         Args:
             repo_path: Filesystem path to target repository root.
             force: If True, authorizes overwriting an existing README.md. Default is False.
+            use_gemini: If True, uses Gemini 2.0 Flash to enrich commentary and summaries.
+            gemini_api_key: Optional explicit API key for Gemini.
             custom_output_name: Optional explicit filename for output.
 
         Returns:
@@ -87,6 +98,20 @@ class ReadmeWriterAgent:
         if not is_safe:
             self._notify("SECURITY_ALERT", f"Access Denied: {sec_error}")
             raise PermissionError(f"Security validation blocked access: {sec_error}")
+
+        # -------------------------------------------------------------
+        # STEP 0B: AI MODE vs LOCAL DETERMINISTIC MODE INITIALIZATION
+        # -------------------------------------------------------------
+        enhancer = None
+        if use_gemini:
+            enhancer = GeminiEnhancer(api_key=gemini_api_key)
+            if enhancer.is_available():
+                self._notify("AI_MODE", "✨ Gemini 2.0 Flash AI enhancement engine ACTIVE.")
+            else:
+                self._notify("AI_MODE_FALLBACK", "⚠️ Gemini AI requested but no API key found. Falling back to local AST.")
+                enhancer = None
+        else:
+            self._notify("LOCAL_MODE", "⚡ Local Deterministic Mode ACTIVE (100% Offline, Fast & Free).")
 
         repo_name = os.path.basename(abs_repo_path.rstrip(os.sep))
         self._notify("START", f"Initiating secure README inspection for: '{repo_name}' ({abs_repo_path})")
@@ -111,7 +136,7 @@ class ReadmeWriterAgent:
         # STEP 2: CODE ANALYSIS & FUNCTION COMMENTARY EXTRACTION
         # -------------------------------------------------------------
         self._notify("ANALYSIS", "Performing static AST code analysis & extracting function commentary...")
-        analyzer = CodeAnalyzer(abs_repo_path)
+        analyzer = CodeAnalyzer(abs_repo_path, enhancer=enhancer)
         modules = []
         all_entities: List[CodeEntity] = []
 
@@ -169,7 +194,7 @@ class ReadmeWriterAgent:
         # STEP 4: SYNTHESIZE PRODUCTION MARKDOWN & REDACT SECRETS
         # -------------------------------------------------------------
         self._notify("GENERATING", "Synthesizing Mermaid diagrams, file tree, and function reference table...")
-        generator = ReadmeGenerator(metadata)
+        generator = ReadmeGenerator(metadata, enhancer=enhancer)
         raw_markdown = generator.generate_markdown()
 
         # Scrub accidental credentials, API keys, or private tokens

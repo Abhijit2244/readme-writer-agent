@@ -151,7 +151,8 @@ class TestWebSecurityAndEndpoints(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertIn("session_id", data)
         self.assertIn("calculate_interest", data["markdown_content"])
-        self.assertIn("| Component / Function | Parameters | Operational Purpose & Commentary |", data["markdown_content"])
+        self.assertIn("Operational Purpose & Commentary", data["markdown_content"])
+        self.assertEqual(data["engine_mode"], "Local Deterministic AST")
 
         # 2. Test download endpoint with returned session_id
         session_id = data["session_id"]
@@ -201,6 +202,25 @@ class TestWebSecurityAndEndpoints(unittest.TestCase):
         data = res.json()
         self.assertTrue(data["success"])
         self.assertIn("run_server", data["markdown_content"])
+        self.assertEqual(data["engine_mode"], "Local Deterministic AST")
+
+    def test_14_engine_toggle_gemini_mode(self):
+        # Create a mock repository
+        with open(os.path.join(self.temp_dir.name, "greeter.py"), "w", encoding="utf-8") as f:
+            f.write("def greet(name: str): return f'Hello {name}'\n")
+
+        # Request with use_gemini=True
+        res = self.client.post("/api/generate", json={
+            "repo_path": self.temp_dir.name,
+            "force": False,
+            "use_gemini": True,
+            "gemini_api_key": "MOCK_KEY_FOR_TESTING"
+        })
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data["engine_mode"], "Gemini 2.0 Flash AI")
+        self.assertIn("greet", data["markdown_content"])
 
 
 if __name__ == "__main__":
