@@ -1,0 +1,1093 @@
+"""
+Production Web Application & Hosting Server (Vercel & Cloud Ready)
+===================================================================
+FastAPI-powered enterprise web application for Autonomous README Writer Agent.
+
+Hosting Capabilities:
+  • Vercel Serverless Function compatibility (via api/index.py and vercel.json).
+  • GitHub Repository URL ingestion (clone/archive inspection in serverless /tmp).
+  • Project Zip file upload ingestion (safe extraction with Zip-Slip defense).
+  • Local filesystem path inspection (for local/desktop hosting).
+  • In-browser rich Markdown rendering with live interactive Mermaid.js diagrams.
+  • One-click direct file downloading for generated documentation.
+  • Perimeter security: Path traversal defense, API key redaction, CSP headers.
+
+Run locally with:
+  python server.py
+or:
+  uvicorn server:app --host 0.0.0.0 --port 8000
+"""
+
+import os
+import sys
+import shutil
+import tempfile
+import urllib.request
+import logging
+from typing import Optional, List, Dict, Any
+
+# Ensure project root is in Python module path
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+
+from fastapi import FastAPI, HTTPException, Request, Response, Query, UploadFile, File, Form
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from core.agent import ReadmeWriterAgent
+from core.security import SecurityValidator
+from core.safety import ReadmeSafetyController
+from core.scanner import RepositoryScanner
+
+# Setup logging
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("readme_agent_server")
+
+app = FastAPI(
+    title="Autonomous README Writer Agent",
+    description="Enterprise API & Web Dashboard for Automated AST Documentation Synthesis",
+    version="1.0.0"
+)
+
+
+# --------------------------------------------------------------------------
+# SECURITY MIDDLEWARE (CSP, Anti-Clickjacking, MIME Sniffing Protection)
+# --------------------------------------------------------------------------
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data: https:; "
+            "connect-src 'self';"
+        )
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+
+# --------------------------------------------------------------------------
+# REQUEST / RESPONSE DATA SCHEMAS
+# --------------------------------------------------------------------------
+class ValidateRequest(BaseModel):
+    repo_path: str = Field(..., description="Local filesystem path to target repository")
+
+class GenerateRequest(BaseModel):
+    repo_path: str = Field(..., description="Local filesystem path to target repository")
+    force: bool = Field(False, description="If True, authorizes overwriting existing README.md")
+    custom_output_name: Optional[str] = Field(None, description="Optional custom filename for generated markdown")
+
+class GitHubGenerateRequest(BaseModel):
+    github_url: str = Field(..., description="Public GitHub repository URL (e.g. https://github.com/owner/repo)")
+    force: bool = Field(False, description="If True, authorizes overwriting existing README.md")
+
+
+# --------------------------------------------------------------------------
+# IN-MEMORY CACHE FOR GENERATED SESSIONS (For secure downloading)
+# --------------------------------------------------------------------------
+SESSION_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+# --------------------------------------------------------------------------
+# HELPER: RUN AGENT ON DIRECTORY & CACHE RESULT
+# --------------------------------------------------------------------------
+def _execute_agent_on_dir(target_dir: str, force: bool, custom_output_name: Optional[str] = None):
+    telemetry_logs: List[Dict[str, Any]] = []
+
+    def event_collector(event_type: str, data: Any):
+        telemetry_logs.append({
+            "type": event_type,
+            "data": data if isinstance(data, (str, int, float, bool, list, dict)) else str(data)
+        })
+
+    agent = ReadmeWriterAgent(verbose=False)
+    agent.register_callback(event_collector)
+
+    result = agent.run(
+        repo_path=target_dir,
+        force=force,
+        custom_output_name=custom_output_name
+    )
+
+    session_id = f"sess_{os.path.basename(target_dir)}_{len(SESSION_CACHE) + 1}"
+    SESSION_CACHE[session_id] = {
+        "filename": os.path.basename(result.output_path),
+        "content": result.markdown_content,
+        "output_path": result.output_path
+    }
+
+    return {
+        "success": True,
+        "session_id": session_id,
+        "output_path": result.output_path,
+        "output_filename": os.path.basename(result.output_path),
+        "was_overwritten": result.was_overwritten,
+        "saved_as_alternate": result.saved_as_alternate,
+        "entities_documented_count": result.entities_documented_count,
+        "sections_included": result.sections_included,
+        "markdown_content": result.markdown_content,
+        "telemetry_logs": telemetry_logs
+    }
+
+
+# --------------------------------------------------------------------------
+# API ENDPOINTS
+# --------------------------------------------------------------------------
+@app.get("/health")
+def health_check():
+    """Healthcheck endpoint for container orchestration, Vercel, and uptime monitors."""
+    return {
+        "status": "healthy",
+        "service": "readme-writer-agent",
+        "platform": "vercel-ready",
+        "version": "1.0.0",
+        "security": {
+            "path_traversal_protection": "active",
+            "secret_redaction": "active",
+            "zip_slip_defense": "active",
+            "non_destructive_guardrails": "active"
+        }
+    }
+
+
+@app.post("/api/validate")
+def validate_repository(req: ValidateRequest):
+    """
+    Performs perimeter security checks and inspects target directory safely
+    without executing or writing any code.
+    """
+    is_safe, canonical_path, error_msg = SecurityValidator.validate_repo_path(req.repo_path)
+    if not is_safe:
+        return JSONResponse(status_code=400, content={"valid": False, "error": error_msg})
+
+    try:
+        safety = ReadmeSafetyController(canonical_path)
+        has_existing, existing_path = safety.check_existing_readme()
+
+        scanner = RepositoryScanner(canonical_path)
+        files = scanner.scan_files()
+        tech_stack = scanner.detect_tech_stack(files)
+
+        return {
+            "valid": True,
+            "canonical_path": canonical_path,
+            "repo_name": os.path.basename(canonical_path),
+            "total_files": len(files),
+            "primary_language": tech_stack.primary_language,
+            "frameworks": tech_stack.frameworks,
+            "has_existing_readme": has_existing,
+            "existing_readme_name": os.path.basename(existing_path) if existing_path else None
+        }
+    except Exception as e:
+        logger.error(f"Validation error: {e}")
+        return JSONResponse(status_code=500, content={"valid": False, "error": str(e)})
+
+
+@app.post("/api/generate")
+def generate_readme(req: GenerateRequest):
+    """Generates README for a local filesystem path (with perimeter security checks)."""
+    is_safe, canonical_path, error_msg = SecurityValidator.validate_repo_path(req.repo_path)
+    if not is_safe:
+        raise HTTPException(status_code=400, detail=f"Security Validation Blocked: {error_msg}")
+
+    try:
+        return _execute_agent_on_dir(canonical_path, force=req.force, custom_output_name=req.custom_output_name)
+    except Exception as e:
+        logger.error(f"Generation failure: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+
+
+@app.post("/api/generate-github")
+def generate_readme_from_github(req: GitHubGenerateRequest):
+    """
+    Fetches a public GitHub repository zipball, extracts it safely in serverless /tmp,
+    and runs the full documentation analysis pipeline. Perfect for Vercel deployments!
+    """
+    is_valid, owner, repo, err_msg = SecurityValidator.validate_github_url(req.github_url)
+    if not is_valid:
+        raise HTTPException(status_code=400, detail=err_msg)
+
+    temp_base = tempfile.mkdtemp(prefix=f"gh_{owner}_{repo}_")
+    zip_dest = os.path.join(temp_base, "repo.zip")
+    extract_dest = os.path.join(temp_base, "extracted")
+
+    try:
+        # Download public zip archive from GitHub
+        urls_to_try = [
+            f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/main",
+            f"https://codeload.github.com/{owner}/{repo}/zip/refs/heads/master"
+        ]
+
+        download_success = False
+        headers = {"User-Agent": "Autonomous-Readme-Writer-Agent/1.0"}
+
+        for u in urls_to_try:
+            try:
+                request = urllib.request.Request(u, headers=headers)
+                with urllib.request.urlopen(request, timeout=15) as response, open(zip_dest, "wb") as out_file:
+                    shutil.copyfileobj(response, out_file)
+                download_success = True
+                break
+            except Exception:
+                continue
+
+        if not download_success:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Could not download repository '{owner}/{repo}'. Please ensure the repository is public and accessible."
+            )
+
+        # Safe extraction with Zip-Slip protection
+        success, extract_err = SecurityValidator.safe_extract_zip(zip_dest, extract_dest)
+        if not success:
+            raise HTTPException(status_code=400, detail=f"Zip Extraction Security Alert: {extract_err}")
+
+        # GitHub archives extract into an inner folder like 'repo-main/'
+        inner_entries = os.listdir(extract_dest)
+        repo_root = extract_dest
+        if len(inner_entries) == 1 and os.path.isdir(os.path.join(extract_dest, inner_entries[0])):
+            repo_root = os.path.join(extract_dest, inner_entries[0])
+
+        return _execute_agent_on_dir(repo_root, force=req.force)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"GitHub pipeline error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"GitHub repository analysis error: {str(e)}")
+    finally:
+        # Cleanup zip file to conserve serverless disk space
+        if os.path.exists(zip_dest):
+            try:
+                os.remove(zip_dest)
+            except Exception:
+                pass
+
+
+@app.post("/api/upload-zip")
+async def generate_readme_from_zip(
+    file: UploadFile = File(...),
+    force: bool = Form(False)
+):
+    """
+    Accepts a project .zip archive uploaded directly from the browser,
+    extracts it safely in serverless /tmp, and generates documentation.
+    """
+    if not file.filename.lower().endswith(".zip"):
+        raise HTTPException(status_code=400, detail="Only .zip archives are supported.")
+
+    temp_base = tempfile.mkdtemp(prefix="upload_repo_")
+    zip_dest = os.path.join(temp_base, "uploaded.zip")
+    extract_dest = os.path.join(temp_base, "extracted")
+
+    try:
+        # Write uploaded bytes to temp file
+        with open(zip_dest, "wb") as f:
+            content = await file.read()
+            # Guard against massive file uploads
+            if len(content) > 50 * 1024 * 1024:
+                raise HTTPException(status_code=400, detail="Uploaded zip file exceeds 50MB limit.")
+            f.write(content)
+
+        # Safe extraction with Zip-Slip defense
+        success, extract_err = SecurityValidator.safe_extract_zip(zip_dest, extract_dest)
+        if not success:
+            raise HTTPException(status_code=400, detail=f"Zip Extraction Security Alert: {extract_err}")
+
+        # Detect extracted root
+        inner_entries = os.listdir(extract_dest)
+        repo_root = extract_dest
+        if len(inner_entries) == 1 and os.path.isdir(os.path.join(extract_dest, inner_entries[0])):
+            repo_root = os.path.join(extract_dest, inner_entries[0])
+
+        return _execute_agent_on_dir(repo_root, force=force)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Zip upload pipeline error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Zip processing error: {str(e)}")
+    finally:
+        if os.path.exists(zip_dest):
+            try:
+                os.remove(zip_dest)
+            except Exception:
+                pass
+
+
+@app.get("/api/download")
+def download_readme(session_id: str = Query(..., description="Session identifier from generation")):
+    """Directly downloads the generated markdown documentation file."""
+    if session_id not in SESSION_CACHE:
+        raise HTTPException(status_code=404, detail="Requested documentation session has expired or is invalid.")
+
+    record = SESSION_CACHE[session_id]
+    filename = record["filename"]
+    content = record["content"]
+
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Type": "text/markdown; charset=utf-8"
+    }
+    return Response(content=content, media_type="text/markdown", headers=headers)
+
+
+# --------------------------------------------------------------------------
+# SINGLE-PAGE WEB INTERFACE (HTML, CSS, JAVASCRIPT)
+# --------------------------------------------------------------------------
+@app.get("/", response_class=HTMLResponse)
+def index():
+    """Renders the single-page responsive web dashboard."""
+    html_content = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Autonomous README Writer Agent (Vercel Edition)</title>
+  <!-- Google Fonts & CDN Libraries -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+  <style>
+    :root {
+      --bg-dark: #0d1117;
+      --card-bg: #161b22;
+      --card-border: #30363d;
+      --accent-blue: #58a6ff;
+      --accent-green: #2ea043;
+      --accent-purple: #bc8cff;
+      --accent-yellow: #d29922;
+      --accent-red: #f85149;
+      --text-main: #c9d1d9;
+      --text-muted: #8b949e;
+      --code-bg: #090d13;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg-dark);
+      color: var(--text-main);
+      line-height: 1.6;
+      padding-bottom: 60px;
+    }
+    header {
+      background: #161b22;
+      border-bottom: 1px solid var(--card-border);
+      padding: 18px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      font-size: 26px;
+      background: linear-gradient(135deg, #1f6feb, #8957e5);
+      border-radius: 8px;
+      padding: 4px 8px;
+    }
+    .brand h1 {
+      font-size: 19px;
+      font-weight: 700;
+      color: #f0f6fc;
+      letter-spacing: -0.3px;
+    }
+    .brand p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+    .header-badges {
+      display: flex;
+      gap: 10px;
+    }
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .badge-green { background: rgba(46, 160, 67, 0.15); color: #3fb950; border: 1px solid rgba(46, 160, 67, 0.4); }
+    .badge-purple { background: rgba(188, 140, 255, 0.15); color: #d2a8ff; border: 1px solid rgba(188, 140, 255, 0.4); }
+    
+    .container {
+      max-width: 1300px;
+      margin: 28px auto;
+      padding: 0 24px;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+    }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #f0f6fc;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Input Source Mode Tabs */
+    .mode-tabs {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 12px;
+    }
+    .mode-tab-btn {
+      background: #21262d;
+      border: 1px solid var(--card-border);
+      color: var(--text-muted);
+      padding: 8px 18px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mode-tab-btn.active {
+      background: linear-gradient(135deg, #1f6feb, #388bfd);
+      color: #fff;
+      border-color: #58a6ff;
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #e6edf3;
+      margin-bottom: 6px;
+    }
+    input[type="text"], input[type="file"] {
+      width: 100%;
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      color: #f0f6fc;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent-blue);
+      box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
+    }
+    .quick-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .chip {
+      background: rgba(110, 118, 129, 0.15);
+      border: 1px solid rgba(110, 118, 129, 0.3);
+      color: var(--accent-blue);
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .chip:hover {
+      background: rgba(88, 166, 255, 0.15);
+      border-color: var(--accent-blue);
+    }
+    .options-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      background: rgba(9, 13, 19, 0.6);
+      padding: 14px 18px;
+      border-radius: 8px;
+      border: 1px solid var(--card-border);
+      margin-top: 14px;
+    }
+    .toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .toggle-label input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent-yellow);
+      cursor: pointer;
+    }
+    .btn-row {
+      display: flex;
+      gap: 12px;
+      margin-top: 20px;
+    }
+    button {
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, #238636, #2ea043);
+      color: #fff;
+    }
+    .btn-primary:hover {
+      background: linear-gradient(135deg, #2ea043, #3fb950);
+      transform: translateY(-1px);
+    }
+    .btn-secondary {
+      background: #21262d;
+      color: #c9d1d9;
+      border: 1px solid var(--card-border);
+    }
+    .btn-secondary:hover {
+      background: #30363d;
+      color: #f0f6fc;
+    }
+    .btn-download {
+      background: linear-gradient(135deg, #1f6feb, #388bfd);
+      color: white;
+    }
+    .btn-download:hover {
+      background: linear-gradient(135deg, #388bfd, #58a6ff);
+    }
+    
+    /* Stats Bar */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 16px;
+      text-align: center;
+    }
+    .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #f0f6fc;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .stat-label {
+      font-size: 12px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-top: 4px;
+    }
+
+    /* Live Telemetry Terminal */
+    .terminal-box {
+      background: #05080c;
+      border: 1px solid #21262d;
+      border-radius: 8px;
+      padding: 16px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      color: #7ee787;
+      max-height: 180px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+
+    /* Viewer Tabs */
+    .tab-header {
+      display: flex;
+      gap: 8px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 12px;
+      margin-bottom: 18px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .tab-buttons {
+      display: flex;
+      gap: 8px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-muted);
+      padding: 8px 16px;
+      font-size: 13px;
+      border-radius: 6px;
+    }
+    .tab-btn.active {
+      background: #21262d;
+      color: #f0f6fc;
+      border-color: var(--card-border);
+    }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Markdown Render Styling */
+    .markdown-body {
+      color: #c9d1d9;
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .markdown-body h1, .markdown-body h2, .markdown-body h3 {
+      color: #f0f6fc;
+      margin: 24px 0 14px;
+      font-weight: 600;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 8px;
+    }
+    .markdown-body pre {
+      background: var(--code-bg);
+      border: 1px solid var(--card-border);
+      padding: 16px;
+      border-radius: 8px;
+      overflow-x: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      margin: 16px 0;
+    }
+    .markdown-body code {
+      background: rgba(110, 118, 129, 0.2);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+    }
+    .markdown-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 20px 0;
+      font-size: 13px;
+    }
+    .markdown-body th, .markdown-body td {
+      border: 1px solid var(--card-border);
+      padding: 10px 14px;
+      text-align: left;
+    }
+    .markdown-body th {
+      background: #1c2128;
+      color: #f0f6fc;
+      font-weight: 600;
+    }
+    .markdown-body tr:nth-child(even) {
+      background: rgba(22, 27, 34, 0.6);
+    }
+    .raw-textarea {
+      width: 100%;
+      height: 600px;
+      background: #090d13;
+      border: 1px solid var(--card-border);
+      border-radius: 8px;
+      color: #e6edf3;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      padding: 16px;
+      line-height: 1.6;
+      resize: vertical;
+    }
+    .alert-banner {
+      padding: 14px 18px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 20px;
+      display: none;
+    }
+    .alert-warn {
+      background: rgba(210, 153, 34, 0.15);
+      border: 1px solid rgba(210, 153, 34, 0.4);
+      color: #e3b341;
+    }
+    .alert-success {
+      background: rgba(46, 160, 67, 0.15);
+      border: 1px solid rgba(46, 160, 67, 0.4);
+      color: #3fb950;
+    }
+    .alert-error {
+      background: rgba(248, 81, 73, 0.15);
+      border: 1px solid rgba(248, 81, 73, 0.4);
+      color: #f85149;
+    }
+    .spinner {
+      border: 3px solid rgba(255,255,255,0.1);
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      border-left-color: #fff;
+      animation: spin 0.8s linear infinite;
+      display: none;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-icon">🤖</div>
+      <div>
+        <h1>README Writer Agent</h1>
+        <p>Deterministic AST Code Inspection • Cloud & Vercel Ready</p>
+      </div>
+    </div>
+    <div class="header-badges">
+      <span class="badge badge-green">🛡️ Security Guardrails Active</span>
+      <span class="badge badge-purple">▲ Vercel Serverless Ready</span>
+    </div>
+  </header>
+
+  <div class="container">
+
+    <!-- INPUT CONFIGURATION CARD -->
+    <div class="card">
+      <div class="card-title">📁 Choose Source Mode</div>
+      
+      <!-- MODE SELECTION TABS -->
+      <div class="mode-tabs">
+        <button class="mode-tab-btn active" id="btnModeGithub" onclick="setMode('github')">🌐 GitHub URL (Recommended for Vercel)</button>
+        <button class="mode-tab-btn" id="btnModeZip" onclick="setMode('zip')">📦 Upload Project (.zip)</button>
+        <button class="mode-tab-btn" id="btnModeLocal" onclick="setMode('local')">💻 Local Filesystem Path</button>
+      </div>
+
+      <!-- MODE 1: GITHUB URL -->
+      <div id="sectionGithub" class="form-group">
+        <label for="githubUrl">Public GitHub Repository URL</label>
+        <input type="text" id="githubUrl" placeholder="https://github.com/Abhijit2244/let-the-wheel-decide" value="https://github.com/Abhijit2244/let-the-wheel-decide">
+        <div class="quick-chips">
+          <span style="font-size: 11px; color: var(--text-muted); align-self: center;">Quick Test:</span>
+          <span class="chip" onclick="setGithub('https://github.com/Abhijit2244/let-the-wheel-decide')">Abhijit2244/let-the-wheel-decide</span>
+        </div>
+      </div>
+
+      <!-- MODE 2: UPLOAD ZIP -->
+      <div id="sectionZip" class="form-group" style="display: none;">
+        <label for="zipFile">Select Project Zip Archive (.zip)</label>
+        <input type="file" id="zipFile" accept=".zip">
+        <p style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">
+          Safe extraction with automated Zip-Slip path traversal defense.
+        </p>
+      </div>
+
+      <!-- MODE 3: LOCAL PATH -->
+      <div id="sectionLocal" class="form-group" style="display: none;">
+        <label for="repoPath">Local Repository Filesystem Path</label>
+        <input type="text" id="repoPath" placeholder="C:\\Users\\COM\\Desktop\\sample\\readme-writer-agent" value="C:\\Users\\COM\\Desktop\\sample\\readme-writer-agent">
+        <div class="quick-chips">
+          <span style="font-size: 11px; color: var(--text-muted); align-self: center;">Quick Select:</span>
+          <span class="chip" onclick="setLocalPath('C:\\\\Users\\\\COM\\\\Desktop\\\\sample\\\\readme-writer-agent')">Self (readme-writer-agent)</span>
+          <span class="chip" onclick="setLocalPath('C:\\\\Users\\\\COM\\\\Desktop\\\\sample\\\\rag-project')">RAG Project</span>
+          <span class="chip" onclick="setLocalPath('C:\\\\Users\\\\COM\\\\Desktop\\\\sample\\\\ai-agent-project')">AI Agent Project</span>
+          <span class="chip" onclick="setLocalPath('C:\\\\Users\\\\COM\\\\Desktop\\\\sample\\\\omni-genai-platform')">OmniGenAI Platform</span>
+        </div>
+      </div>
+
+      <div class="options-row">
+        <label class="toggle-label">
+          <input type="checkbox" id="forceOverwrite">
+          <span><strong>Allow Overwrite Existing README</strong> (<code>--force</code>)</span>
+        </label>
+        <span style="font-size: 12px; color: var(--text-muted);">
+          🔒 Default preserves existing <code>README.md</code> ➔ writes to <code>README.generated.md</code>
+        </span>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn-primary" id="btnGenerate" onclick="dispatchGenerate()">
+          <span class="spinner" id="genSpinner"></span>
+          <span>⚡ Generate Production README</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- ALERTS CONTAINER -->
+    <div id="alertBox" class="alert-banner"></div>
+
+    <!-- METRICS BAR (Hidden until generated) -->
+    <div id="statsRow" class="stats-grid" style="display: none;">
+      <div class="stat-card">
+        <div class="stat-value" id="statFiles">0</div>
+        <div class="stat-label">Sections Built</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="statEntities">0</div>
+        <div class="stat-label">Classes & Functions</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="statStatus">Safe</div>
+        <div class="stat-label">Safety Decision</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="statFile">README.md</div>
+        <div class="stat-label">Target File</div>
+      </div>
+    </div>
+
+    <!-- TELEMETRY LOG CARD -->
+    <div class="card" id="telemetryCard" style="display: none;">
+      <div class="card-title">📡 Real-Time Telemetry & AST Extraction Logs</div>
+      <div class="terminal-box" id="telemetryLog"></div>
+    </div>
+
+    <!-- RESULTS & PREVIEW CARD (Hidden until generated) -->
+    <div class="card" id="previewCard" style="display: none;">
+      <div class="tab-header">
+        <div class="tab-buttons">
+          <button class="tab-btn active" id="tabBtnPreview" onclick="switchTab('preview')">👁️ Rendered HTML Preview</button>
+          <button class="tab-btn" id="tabBtnRaw" onclick="switchTab('raw')">📝 Raw Markdown</button>
+        </div>
+        <div style="display: flex; gap: 10px;">
+          <button class="btn-secondary" onclick="copyMarkdown()">📋 Copy Markdown</button>
+          <button class="btn-download" id="btnDownload" onclick="triggerDownload()">📥 Download README.md</button>
+        </div>
+      </div>
+
+      <!-- Tab 1: Rendered View -->
+      <div id="tabPreview" class="tab-content active">
+        <div class="markdown-body" id="markdownRendered"></div>
+      </div>
+
+      <!-- Tab 2: Raw Markdown View -->
+      <div id="tabRaw" class="tab-content">
+        <textarea class="raw-textarea" id="markdownRaw" readonly></textarea>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+
+    let currentMode = 'github';
+    let currentSessionId = null;
+    let currentMarkdownText = "";
+    let currentOutputFilename = "README.md";
+
+    function setMode(mode) {
+      currentMode = mode;
+      document.getElementById('btnModeGithub').classList.toggle('active', mode === 'github');
+      document.getElementById('btnModeZip').classList.toggle('active', mode === 'zip');
+      document.getElementById('btnModeLocal').classList.toggle('active', mode === 'local');
+
+      document.getElementById('sectionGithub').style.display = (mode === 'github') ? 'block' : 'none';
+      document.getElementById('sectionZip').style.display = (mode === 'zip') ? 'block' : 'none';
+      document.getElementById('sectionLocal').style.display = (mode === 'local') ? 'block' : 'none';
+    }
+
+    function setGithub(url) {
+      document.getElementById('githubUrl').value = url;
+    }
+
+    function setLocalPath(path) {
+      document.getElementById('repoPath').value = path;
+    }
+
+    function showAlert(msg, type = 'warn') {
+      const box = document.getElementById('alertBox');
+      box.className = `alert-banner alert-${type}`;
+      box.innerHTML = msg;
+      box.style.display = 'block';
+    }
+
+    function hideAlert() {
+      document.getElementById('alertBox').style.display = 'none';
+    }
+
+    function switchTab(tab) {
+      document.getElementById('tabBtnPreview').classList.toggle('active', tab === 'preview');
+      document.getElementById('tabBtnRaw').classList.toggle('active', tab === 'raw');
+      document.getElementById('tabPreview').classList.toggle('active', tab === 'preview');
+      document.getElementById('tabRaw').classList.toggle('active', tab === 'raw');
+    }
+
+    async function dispatchGenerate() {
+      hideAlert();
+      const force = document.getElementById('forceOverwrite').checked;
+      const btn = document.getElementById('btnGenerate');
+      const spinner = document.getElementById('genSpinner');
+      const term = document.getElementById('telemetryLog');
+
+      btn.disabled = true;
+      spinner.style.display = 'inline-block';
+      document.getElementById('telemetryCard').style.display = 'block';
+
+      try {
+        let endpoint = '/api/generate';
+        let body = null;
+        let headers = {};
+
+        if (currentMode === 'github') {
+          const ghUrl = document.getElementById('githubUrl').value.trim();
+          if (!ghUrl) {
+            showAlert('Please provide a valid GitHub repository URL.', 'error');
+            return;
+          }
+          endpoint = '/api/generate-github';
+          headers = { 'Content-Type': 'application/json' };
+          body = JSON.stringify({ github_url: ghUrl, force: force });
+          term.innerHTML = `[AGENT] Fetching GitHub archive for: ${ghUrl}\\n`;
+
+        } else if (currentMode === 'zip') {
+          const fileInput = document.getElementById('zipFile');
+          if (!fileInput.files || fileInput.files.length === 0) {
+            showAlert('Please select a .zip project file to upload.', 'error');
+            return;
+          }
+          endpoint = '/api/upload-zip';
+          const formData = new FormData();
+          formData.append('file', fileInput.files[0]);
+          formData.append('force', force);
+          body = formData;
+          term.innerHTML = `[AGENT] Uploading and extracting project archive safely...\\n`;
+
+        } else {
+          const localPath = document.getElementById('repoPath').value.trim();
+          if (!localPath) {
+            showAlert('Please provide a local repository filesystem path.', 'error');
+            return;
+          }
+          endpoint = '/api/generate';
+          headers = { 'Content-Type': 'application/json' };
+          body = JSON.stringify({ repo_path: localPath, force: force });
+          term.innerHTML = `[AGENT] Initiating inspection for local path: ${localPath}\\n`;
+        }
+
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: headers,
+          body: body
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          showAlert(`<strong>Generation Failed:</strong> ${data.detail || 'Server error'}`, 'error');
+          term.innerHTML += `\\n[ERROR] ${data.detail || 'Server encountered an error.'}`;
+          return;
+        }
+
+        // Display telemetry
+        if (data.telemetry_logs && data.telemetry_logs.length) {
+          term.innerHTML = data.telemetry_logs.map(l => `[${l.type}] ${typeof l.data === 'object' ? JSON.stringify(l.data) : l.data}`).join('\\n');
+        }
+
+        currentSessionId = data.session_id;
+        currentMarkdownText = data.markdown_content;
+        currentOutputFilename = data.output_filename;
+
+        // Update stats
+        document.getElementById('statsRow').style.display = 'grid';
+        document.getElementById('statFiles').innerText = data.sections_included.length;
+        document.getElementById('statEntities').innerText = data.entities_documented_count;
+        document.getElementById('statStatus').innerText = data.was_overwritten ? 'Overwritten' : (data.saved_as_alternate ? 'Preserved' : 'Clean');
+        document.getElementById('statFile').innerText = data.output_filename;
+
+        document.getElementById('btnDownload').innerText = `📥 Download ${data.output_filename}`;
+        document.getElementById('markdownRaw').value = currentMarkdownText;
+
+        // Render Markdown with marked.js
+        const renderedContainer = document.getElementById('markdownRendered');
+        renderedContainer.innerHTML = marked.parse(currentMarkdownText);
+
+        // Render Mermaid Diagrams if present
+        const mermaidPreBlocks = renderedContainer.querySelectorAll('pre code.language-mermaid');
+        mermaidPreBlocks.forEach((codeBlock, idx) => {
+          const pre = codeBlock.parentElement;
+          const graphDefinition = codeBlock.innerText;
+          const mermaidDiv = document.createElement('div');
+          mermaidDiv.className = 'mermaid';
+          mermaidDiv.id = `mermaid-${idx}`;
+          mermaidDiv.innerHTML = graphDefinition;
+          pre.parentNode.replaceChild(mermaidDiv, pre);
+        });
+
+        try {
+          mermaid.run();
+        } catch (mErr) {
+          console.warn('Mermaid rendering notice:', mErr);
+        }
+
+        document.getElementById('previewCard').style.display = 'block';
+
+        if (data.saved_as_alternate) {
+          showAlert(`🛡️ <strong>Safety Preservation Active:</strong> An existing README was detected! The original file was preserved, and your new documentation was saved as <code>${data.output_filename}</code>.`, 'warn');
+        } else if (data.was_overwritten) {
+          showAlert(`⚠️ <strong>Explicit Overwrite:</strong> <code>${data.output_filename}</code> was overwritten as authorized via the <code>--force</code> setting.`, 'warn');
+        } else {
+          showAlert(`🎉 <strong>Success!</strong> Publication-ready documentation generated at <code>${data.output_filename}</code> with ${data.entities_documented_count} documented components.`, 'success');
+        }
+
+        document.getElementById('previewCard').scrollIntoView({ behavior: 'smooth' });
+
+      } catch (err) {
+        showAlert(`Client request failure: ${err.message}`, 'error');
+      } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+      }
+    }
+
+    function triggerDownload() {
+      if (!currentSessionId) {
+        showAlert('No documentation session available for download.', 'error');
+        return;
+      }
+      window.location.href = `/api/download?session_id=${encodeURIComponent(currentSessionId)}`;
+    }
+
+    function copyMarkdown() {
+      if (!currentMarkdownText) return;
+      navigator.clipboard.writeText(currentMarkdownText).then(() => {
+        showAlert('📋 Markdown copied to clipboard!', 'success');
+      }).catch(err => {
+        showAlert('Could not copy to clipboard: ' + err, 'error');
+      });
+    }
+  </script>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html_content)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 8000))
+    host = os.environ.get("HOST", "127.0.0.1")
+    logger.info(f"🚀 Starting Autonomous README Writer Agent Web Server on http://{host}:{port}")
+    uvicorn.run("server:app", host=host, port=port, reload=False)

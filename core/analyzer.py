@@ -13,6 +13,7 @@ import os
 import re
 from typing import List, Dict, Any, Optional
 from core.models import CodeEntity, ModuleAnalysis
+from core.security import SecurityValidator
 
 
 class CodeAnalyzer:
@@ -49,6 +50,11 @@ class CodeAnalyzer:
         ext = os.path.splitext(rel_path)[1].lower()
 
         if ext not in [".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".rs", ".sh"]:
+            return None
+
+        # Guard against oversized files (prevents DoS / memory exhaustion)
+        is_safe, _ = SecurityValidator.is_file_safe_to_read(abs_path)
+        if not is_safe:
             return None
 
         try:

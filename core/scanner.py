@@ -11,6 +11,7 @@ import os
 import re
 from typing import List, Dict, Set, Tuple, Any
 from core.models import ProjectTechStack
+from core.security import SecurityValidator
 
 
 class RepositoryScanner:
@@ -60,18 +61,29 @@ class RepositoryScanner:
         """
         discovered_files: List[str] = []
 
-        for root, dirs, files in os.walk(self.repo_path):
+        for root, dirs, files in os.walk(self.repo_path, followlinks=False):
             # In-place directory filtering prevents os.walk from descending into junk folders
             dirs[:] = [d for d in dirs if d not in self.IGNORED_DIRS and not d.startswith(".git")]
 
             for file in files:
+                # DoS Protection: Stop crawl if repository exceeds max file threshold
+                if len(discovered_files) >= SecurityValidator.MAX_CRAWL_FILES:
+                    break
+
                 ext = os.path.splitext(file)[1].lower()
                 if ext in self.IGNORED_EXTENSIONS:
                     continue
 
                 abs_path = os.path.join(root, file)
+                # Skip broken or circular symlinks
+                if os.path.islink(abs_path):
+                    continue
+
                 rel_path = os.path.relpath(abs_path, self.repo_path).replace("\\", "/")
                 discovered_files.append(rel_path)
+
+            if len(discovered_files) >= SecurityValidator.MAX_CRAWL_FILES:
+                break
 
         return sorted(discovered_files)
 

@@ -21,6 +21,7 @@ from core.scanner import RepositoryScanner
 from core.analyzer import CodeAnalyzer
 from core.safety import ReadmeSafetyController
 from core.generator import ReadmeGenerator
+from core.security import SecurityValidator
 
 
 class ReadmeWriterAgent:
@@ -79,12 +80,16 @@ class ReadmeWriterAgent:
         Returns:
             ReadmeGenerationResult containing path, status flags, and documented count.
         """
-        abs_repo_path = os.path.abspath(repo_path)
-        if not os.path.isdir(abs_repo_path):
-            raise FileNotFoundError(f"Target repository path does not exist or is not a directory: {abs_repo_path}")
+        # -------------------------------------------------------------
+        # STEP 0: PERIMETER SECURITY & PATH TRAVERSAL VALIDATION
+        # -------------------------------------------------------------
+        is_safe, abs_repo_path, sec_error = SecurityValidator.validate_repo_path(repo_path)
+        if not is_safe:
+            self._notify("SECURITY_ALERT", f"Access Denied: {sec_error}")
+            raise PermissionError(f"Security validation blocked access: {sec_error}")
 
         repo_name = os.path.basename(abs_repo_path.rstrip(os.sep))
-        self._notify("START", f"Initiating README inspection for: '{repo_name}' ({abs_repo_path})")
+        self._notify("START", f"Initiating secure README inspection for: '{repo_name}' ({abs_repo_path})")
 
         # -------------------------------------------------------------
         # STEP 1: SCAN DIRECTORY STRUCTURE & TECH STACK
@@ -161,20 +166,32 @@ class ReadmeWriterAgent:
         )
 
         # -------------------------------------------------------------
-        # STEP 4: SYNTHESIZE PRODUCTION MARKDOWN
+        # STEP 4: SYNTHESIZE PRODUCTION MARKDOWN & REDACT SECRETS
         # -------------------------------------------------------------
         self._notify("GENERATING", "Synthesizing Mermaid diagrams, file tree, and function reference table...")
         generator = ReadmeGenerator(metadata)
-        markdown_text = generator.generate_markdown()
+        raw_markdown = generator.generate_markdown()
+
+        # Scrub accidental credentials, API keys, or private tokens
+        markdown_text = SecurityValidator.redact_secrets(raw_markdown)
 
         # -------------------------------------------------------------
-        # STEP 5: WRITE OUTPUT FILE TO DISK
+        # STEP 5: WRITE OUTPUT FILE TO DISK (WITH SERVERLESS / READ-ONLY FALLBACK)
         # -------------------------------------------------------------
-        with open(target_output_path, "w", encoding="utf-8") as out_f:
-            out_f.write(markdown_text)
+        actual_written_path = target_output_path
+        try:
+            with open(target_output_path, "w", encoding="utf-8") as out_f:
+                out_f.write(markdown_text)
+        except (OSError, PermissionError):
+            # Fallback for serverless hosting environments (e.g., Vercel / AWS Lambda where root is read-only)
+            import tempfile
+            fallback_dir = tempfile.gettempdir()
+            actual_written_path = os.path.join(fallback_dir, os.path.basename(target_output_path))
+            with open(actual_written_path, "w", encoding="utf-8") as out_f:
+                out_f.write(markdown_text)
 
         self._notify("SAVED", {
-            "output_path": target_output_path,
+            "output_path": actual_written_path,
             "was_overwritten": was_overwritten,
             "saved_as_alternate": saved_as_alternate,
             "entities_documented": len(all_entities)
@@ -188,7 +205,7 @@ class ReadmeWriterAgent:
         ]
 
         return ReadmeGenerationResult(
-            output_path=target_output_path,
+            output_path=actual_written_path,
             was_overwritten=was_overwritten,
             saved_as_alternate=saved_as_alternate,
             markdown_content=markdown_text,
