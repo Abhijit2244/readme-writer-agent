@@ -944,25 +944,6 @@ def index():
             <div class="engine-btn-sub">Google Gemini AI • Enriches undocumented functions & synthesizes executive summaries</div>
           </div>
         </div>
-
-        <!-- GEMINI API KEY INPUT (Visible when Gemini mode selected) -->
-        <div id="geminiKeyContainer" class="api-key-box">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-            <label for="geminiApiKey" style="color: #d2a8ff; font-weight: 600; margin-bottom: 0;">
-              🔑 Gemini API Key
-            </label>
-            <span id="envKeyStatusBadge" class="badge" style="font-size: 11px; background: rgba(110, 118, 129, 0.2); color: var(--text-muted);">
-              Checking .env status...
-            </span>
-          </div>
-          <div style="display: flex; gap: 8px; margin-top: 6px;">
-            <input type="password" id="geminiApiKey" placeholder="Auto-loaded from .env (leave blank or enter override key)" style="border-color: rgba(188, 140, 255, 0.4);">
-            <button type="button" class="btn-secondary" onclick="toggleApiKeyVisibility()" style="padding: 0 14px; font-size: 13px;" title="Show/Hide API Key">👁️</button>
-          </div>
-          <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 8px; line-height: 1.5;">
-            🔒 <strong>Automatic .env Loading:</strong> The agent automatically reads <code>GEMINI_API_KEY</code> or <code>GOOGLE_API_KEY</code> directly from your <code>.env</code> file or Vercel Environment Variables. You can leave this input blank, or enter a custom key to override it for this session.
-          </div>
-        </div>
       </div>
 
       <div class="options-row">

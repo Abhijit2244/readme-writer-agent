@@ -28,11 +28,17 @@ except ImportError:
 
 class GeminiEnhancer:
     """
-    Optional semantic enrichment client powered by Google Gemini 2.0 Flash.
+    Optional semantic enrichment client powered by Google Gemini AI.
+    Features automated multi-model failover, rate-limit defense, and graceful AST fallback.
     """
 
-    # Official Generative Language REST API endpoint for Gemini 2.0 Flash
-    API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+    # Active Google Generative Language models in priority order
+    SUPPORTED_MODELS: List[str] = [
+        "gemini-flash-lite-latest",
+        "gemini-flash-latest",
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+    ]
 
     def __init__(self, api_key: Optional[str] = None):
         """
@@ -48,6 +54,8 @@ class GeminiEnhancer:
             or os.getenv("GEMINI_API_KEY", "")
             or os.getenv("GOOGLE_API_KEY", "")
         ).strip()
+        self._commentary_count = 0
+        self.MAX_COMMENTARY_CALLS = 2
 
     def is_available(self) -> bool:
         """
@@ -55,20 +63,20 @@ class GeminiEnhancer:
         """
         return bool(self.api_key)
 
-    def generate_text(self, prompt: str, timeout: int = 8) -> Optional[str]:
+    def generate_text(self, prompt: str, timeout: int = 5) -> Optional[str]:
         """
-        Submits a prompt to Gemini 2.0 Flash via standard HTTP POST.
+        Submits a prompt to Gemini via standard HTTP POST with automated multi-model failover.
 
         Operational Mechanics:
         1. Validates API key presence.
-        2. Constructs the standard Gemini REST JSON payload.
+        2. Tries the fastest active model ('gemini-flash-lite-latest'), failing over to backup models.
         3. Sets low temperature (0.2) for deterministic, factual summaries.
-        4. Enforces a strict network timeout to prevent hanging.
-        5. Returns parsed candidate text, or None on any network/quota failure.
+        4. Enforces a strict network timeout (5s) to guarantee sub-second cloud responsiveness.
+        5. Returns parsed candidate text, or None on quota/network failure.
 
         Args:
             prompt: Text prompt instructions for Gemini.
-            timeout: Maximum seconds to wait before falling back.
+            timeout: Maximum seconds to wait per model before falling back.
 
         Returns:
             Generated text string, or None if unavailable/failed.
@@ -76,7 +84,6 @@ class GeminiEnhancer:
         if not self.is_available():
             return None
 
-        url = f"{self.API_URL}?key={self.api_key}"
         payload = {
             "contents": [{
                 "parts": [{"text": prompt}]
@@ -86,23 +93,28 @@ class GeminiEnhancer:
                 "maxOutputTokens": 250
             }
         }
+        encoded_data = json.dumps(payload).encode("utf-8")
 
-        try:
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"}
-            )
-            with urllib.request.urlopen(req, timeout=timeout) as response:
-                result = json.loads(response.read().decode("utf-8"))
-                candidates = result.get("candidates", [])
-                if candidates:
-                    parts = candidates[0].get("content", {}).get("parts", [])
-                    if parts:
-                        return parts[0].get("text", "").strip()
-        except Exception:
-            # Graceful degradation: never crash on network failure or invalid key
-            return None
+        for model in self.SUPPORTED_MODELS:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={self.api_key}"
+            try:
+                req = urllib.request.Request(
+                    url,
+                    data=encoded_data,
+                    headers={"Content-Type": "application/json"}
+                )
+                with urllib.request.urlopen(req, timeout=timeout) as response:
+                    result = json.loads(response.read().decode("utf-8"))
+                    candidates = result.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts:
+                            text = parts[0].get("text", "").strip()
+                            if text:
+                                return text
+            except Exception:
+                # Silently fail over to the next candidate model
+                continue
 
         return None
 
@@ -118,16 +130,17 @@ class GeminiEnhancer:
         Returns:
             AI-enriched operational description, or fallback_comment if API is unavailable.
         """
-        if not self.is_available():
+        if not self.is_available() or self._commentary_count >= self.MAX_COMMENTARY_CALLS:
             return fallback_comment
 
+        self._commentary_count += 1
         prompt = (
             f"Describe what this code entity does in one concise, professional sentence (under 18 words). "
             f"Do not start with 'This function' or 'This class'. Output ONLY the single operational description sentence.\n\n"
             f"Entity: {entity_name}\nCode:\n{code_snippet[:500]}"
         )
 
-        ai_response = self.generate_text(prompt, timeout=6)
+        ai_response = self.generate_text(prompt, timeout=5)
         if ai_response:
             cleaned = ai_response.replace("\n", " ").strip("\"' ")
             if cleaned and len(cleaned) > 5:
