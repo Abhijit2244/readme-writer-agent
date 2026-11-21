@@ -15,10 +15,6 @@
     {
       "source": "/health",
       "destination": "/api/index.py?__vpath=health"
-    },
-    {
-      "source": "/((?!api/).*)",
-      "destination": "/index.html"
     }
   ]
 }
