@@ -819,7 +819,7 @@ def index():
         <div style="background: rgba(210, 153, 34, 0.12); border: 1px solid rgba(210, 153, 34, 0.35); border-radius: 8px; padding: 10px 14px; margin-top: 10px; font-size: 12px; color: #e3b341; display: flex; align-items: flex-start; gap: 8px;">
           <span style="font-size: 15px;">⚠️</span>
           <span>
-            <strong>Cloud Notice:</strong> Local filesystem paths (e.g. <code>C:\Users\...</code>) only work when running this server locally on your own machine. When hosted on cloud platforms like <strong>Vercel</strong>, the server cannot access your personal device's files unless cloned there—please use the <strong>🌐 GitHub URL</strong> or <strong>📦 Upload Project (.zip)</strong> tab!
+            <strong>Cloud Notice:</strong> Local filesystem paths (e.g. <code>C:/Users/...</code>) only work when running this server locally on your own machine. When hosted on cloud platforms like <strong>Vercel</strong>, the server cannot access your personal device's files unless cloned there—please use the <strong>🌐 GitHub URL</strong> or <strong>📦 Upload Project (.zip)</strong> tab!
           </span>
         </div>
       </div>
