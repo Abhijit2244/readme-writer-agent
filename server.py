@@ -697,29 +697,41 @@ def index():
     /* Stats Bar */
     .stats-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 14px;
       margin-bottom: 24px;
+    }
+    @media (max-width: 1024px) {
+      .stats-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
     }
     .stat-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 10px;
-      padding: 16px;
+      padding: 16px 14px;
       text-align: center;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: 96px;
+      box-sizing: border-box;
+      overflow: hidden;
     }
     .stat-value {
       font-size: 24px;
       font-weight: 700;
       color: #f0f6fc;
       font-family: 'JetBrains Mono', monospace;
+      width: 100%;
+      word-break: break-word;
     }
     .stat-label {
-      font-size: 12px;
+      font-size: 11.5px;
       color: var(--text-muted);
       text-transform: uppercase;
       letter-spacing: 0.5px;
-      margin-top: 4px;
+      margin-top: 6px;
     }
 
     /* Live Telemetry Terminal */
@@ -970,7 +982,7 @@ def index():
     <!-- METRICS BAR (Hidden until generated) -->
     <div id="statsRow" class="stats-grid" style="display: none;">
       <div class="stat-card">
-        <div class="stat-value" id="statEngine" style="font-size: 17px; color: #7ee787;">⚡ Local AST</div>
+        <div class="stat-value" id="statEngine" style="font-size: 15px; font-weight: 600; line-height: 1.35; padding: 0 4px; color: #7ee787;">⚡ Local AST</div>
         <div class="stat-label">Active Engine</div>
       </div>
       <div class="stat-card">
@@ -982,11 +994,11 @@ def index():
         <div class="stat-label">Classes & Functions</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value" id="statStatus">Safe</div>
+        <div class="stat-value" id="statStatus" style="font-size: 18px; font-weight: 700;">Safe</div>
         <div class="stat-label">Safety Decision</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value" id="statFile">README.md</div>
+        <div class="stat-value" id="statFile" style="font-size: 14px; font-weight: 600; line-height: 1.35; padding: 0 6px; word-break: break-all;">README.md</div>
         <div class="stat-label">Target File</div>
       </div>
     </div>
@@ -1116,6 +1128,15 @@ def index():
 
     async function dispatchGenerate() {
       hideAlert();
+
+      // Immediately clear and hide previous generation results
+      currentSessionId = null;
+      currentMarkdownText = "";
+      document.getElementById('previewCard').style.display = 'none';
+      document.getElementById('markdownRendered').innerHTML = '';
+      document.getElementById('markdownRaw').value = '';
+      document.getElementById('statsRow').style.display = 'none';
+
       const force = document.getElementById('forceOverwrite').checked;
       const btn = document.getElementById('btnGenerate');
       const spinner = document.getElementById('genSpinner');
@@ -1128,6 +1149,8 @@ def index():
       btn.disabled = true;
       spinner.style.display = 'inline-block';
       document.getElementById('telemetryCard').style.display = 'block';
+      term.innerHTML = `[AGENT] Initializing new documentation run...\\n`;
+      document.getElementById('telemetryCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 
       try {
         let endpoint = '/api/generate';
