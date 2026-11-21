@@ -405,7 +405,7 @@ def index():
     """Serves the decoupled React frontend dashboard (or embedded fallback)."""
     if os.path.exists(DIST_INDEX):
         return FileResponse(DIST_INDEX)
-    html_content = """<!DOCTYPE html>
+    html_content = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -943,10 +943,10 @@ def index():
       <!-- MODE 1: GITHUB URL -->
       <div id="sectionGithub" class="form-group">
         <label for="githubUrl">Public GitHub Repository URL</label>
-        <input type="text" id="githubUrl" placeholder="https://github.com/Abhijit2244/let-the-wheel-decide" value="https://github.com/Abhijit2244/let-the-wheel-decide">
+        <input type="text" id="githubUrl" placeholder="https://github.com/Abhijit2244/readme-writer-agent" value="https://github.com/Abhijit2244/readme-writer-agent">
         <div class="quick-chips">
           <span style="font-size: 11px; color: var(--text-muted); align-self: center;">Quick Test:</span>
-          <span class="chip" onclick="setGithub('https://github.com/Abhijit2244/let-the-wheel-decide')">Abhijit2244/let-the-wheel-decide</span>
+          <span class="chip" onclick="setGithub('https://github.com/Abhijit2244/readme-writer-agent')">Abhijit2244/readme-writer-agent</span>
         </div>
       </div>
 
@@ -962,14 +962,7 @@ def index():
       <!-- MODE 3: LOCAL PATH -->
       <div id="sectionLocal" class="form-group" style="display: none;">
         <label for="repoPath">Local Repository Filesystem Path</label>
-        <input type="text" id="repoPath" placeholder="C:\\Users\\COM\\Desktop\\sample\\readme-writer-agent" value="C:\\Users\\COM\\Desktop\\sample\\readme-writer-agent">
-        <div class="quick-chips">
-          <span style="font-size: 11px; color: var(--text-muted); align-self: center;">Quick Select:</span>
-          <span class="chip" onclick="setLocalPath('C:\\\\Users\\\\COM\\\\Desktop\\\\sample\\\\readme-writer-agent')">Self (readme-writer-agent)</span>
-          <span class="chip" onclick="setLocalPath('C:\\\\Users\\\\COM\\\\Desktop\\\\sample\\\\rag-project')">RAG Project</span>
-          <span class="chip" onclick="setLocalPath('C:\\\\Users\\\\COM\\\\Desktop\\\\sample\\\\ai-agent-project')">AI Agent Project</span>
-          <span class="chip" onclick="setLocalPath('C:\\\\Users\\\\COM\\\\Desktop\\\\sample\\\\omni-genai-platform')">OmniGenAI Platform</span>
-        </div>
+        <input type="text" id="repoPath" placeholder="e.g. C:/Users/Username/Projects/my-project or /home/user/my-project" value="">
         <div style="background: rgba(210, 153, 34, 0.12); border: 1px solid rgba(210, 153, 34, 0.35); border-radius: 8px; padding: 10px 14px; margin-top: 10px; font-size: 12px; color: #e3b341; display: flex; align-items: flex-start; gap: 8px;">
           <span style="font-size: 15px;">⚠️</span>
           <span>

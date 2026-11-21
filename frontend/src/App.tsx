@@ -56,8 +56,8 @@ export default function App() {
   const [mode, setMode] = useState<'github' | 'zip' | 'local'>('github');
 
   // Input States
-  const [githubUrl, setGithubUrl] = useState<string>('https://github.com/Abhijit2244/let-the-wheel-decide');
-  const [repoPath, setRepoPath] = useState<string>('C:\\Users\\COM\\Desktop\\sample\\readme-writer-agent');
+  const [githubUrl, setGithubUrl] = useState<string>('https://github.com/Abhijit2244/readme-writer-agent');
+  const [repoPath, setRepoPath] = useState<string>('');
   const [zipFile, setZipFile] = useState<File | null>(null);
   const [geminiApiKey, setGeminiApiKey] = useState<string>('');
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
@@ -308,15 +308,15 @@ export default function App() {
                 id="githubUrl"
                 value={githubUrl}
                 onChange={(e) => setGithubUrl(e.target.value)}
-                placeholder="https://github.com/Abhijit2244/let-the-wheel-decide"
+                placeholder="https://github.com/Abhijit2244/readme-writer-agent"
               />
               <div className="quick-chips">
                 <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>Quick Test:</span>
                 <span
                   className="chip"
-                  onClick={() => setGithubUrl('https://github.com/Abhijit2244/let-the-wheel-decide')}
+                  onClick={() => setGithubUrl('https://github.com/Abhijit2244/readme-writer-agent')}
                 >
-                  Abhijit2244/let-the-wheel-decide
+                  Abhijit2244/readme-writer-agent
                 </span>
               </div>
             </div>
@@ -347,29 +347,8 @@ export default function App() {
                 id="repoPath"
                 value={repoPath}
                 onChange={(e) => setRepoPath(e.target.value)}
-                placeholder="C:\Users\COM\Desktop\sample\readme-writer-agent"
+                placeholder="e.g. C:\Users\Username\Projects\my-project or /home/user/my-project"
               />
-              <div className="quick-chips">
-                <span style={{ fontSize: 11, color: 'var(--text-muted)', alignSelf: 'center' }}>Quick Select:</span>
-                <span
-                  className="chip"
-                  onClick={() => setRepoPath('C:\\Users\\COM\\Desktop\\sample\\readme-writer-agent')}
-                >
-                  Self (readme-writer-agent)
-                </span>
-                <span
-                  className="chip"
-                  onClick={() => setRepoPath('C:\\Users\\COM\\Desktop\\sample\\rag-project')}
-                >
-                  RAG Project
-                </span>
-                <span
-                  className="chip"
-                  onClick={() => setRepoPath('C:\\Users\\COM\\Desktop\\sample\\ai-agent-project')}
-                >
-                  AI Agent Project
-                </span>
-              </div>
               <div
                 style={{
                   background: 'rgba(210, 153, 34, 0.12)',
