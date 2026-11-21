@@ -4,11 +4,7 @@
   "outputDirectory": "dist",
   "functions": {
     "api/*.py": {
-      "includeFiles": [
-        "core/**",
-        "server.py",
-        "dist/**"
-      ]
+      "includeFiles": "{core/**,server.py,dist/**}"
     }
   },
   "rewrites": [
