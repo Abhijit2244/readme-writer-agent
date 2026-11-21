@@ -137,6 +137,17 @@ def main():
         action="store_true",
         help="Print a preview of the generated Markdown to the terminal."
     )
+    parser.add_argument(
+        "--gemini", "-g",
+        action="store_true",
+        help="Enable Google Gemini AI enhancement mode (auto-loads GEMINI_API_KEY from .env)."
+    )
+    parser.add_argument(
+        "--key", "-k",
+        type=str,
+        default=None,
+        help="Explicit Gemini API key override (optional if set in .env)."
+    )
 
     args = parser.parse_args()
 
@@ -152,7 +163,9 @@ def main():
         result = agent.run(
             repo_path=repo_target,
             force=args.force,
-            custom_output_name=args.output
+            custom_output_name=args.output,
+            use_gemini=args.gemini,
+            gemini_api_key=args.key
         )
 
         print(f"\n{Fore.GREEN}{Style.BRIGHT}{'=' * 78}")

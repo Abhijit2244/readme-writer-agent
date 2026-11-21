@@ -67,12 +67,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
-            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
-            "font-src 'self' https://fonts.gstatic.com; "
-            "img-src 'self' data: https:; "
-            "connect-src 'self';"
+            "default-src 'self' 'unsafe-inline' 'unsafe-eval' *; "
+            "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net *; "
+            "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com *; "
+            "font-src 'self' https://fonts.gstatic.com data: *; "
+            "img-src 'self' data: https: *; "
+            "connect-src 'self' http: https: *;"
         )
         return response
 
@@ -1024,7 +1024,13 @@ def index():
   </div>
 
   <script>
-    mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+    if (typeof mermaid !== 'undefined') {
+      try {
+        mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'loose' });
+      } catch (e) {
+        console.warn('Mermaid initialization notice:', e);
+      }
+    }
 
     let currentMode = 'github';
     let currentEngine = 'local';
@@ -1089,13 +1095,16 @@ def index():
 
     function showAlert(msg, type = 'warn') {
       const box = document.getElementById('alertBox');
+      if (!box) return;
       box.className = `alert-banner alert-${type}`;
       box.innerHTML = msg;
       box.style.display = 'block';
+      box.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
     function hideAlert() {
-      document.getElementById('alertBox').style.display = 'none';
+      const box = document.getElementById('alertBox');
+      if (box) box.style.display = 'none';
     }
 
     function switchTab(tab) {
@@ -1113,7 +1122,8 @@ def index():
       const term = document.getElementById('telemetryLog');
 
       const isGemini = (currentEngine === 'gemini');
-      const apiKey = document.getElementById('geminiApiKey').value.trim();
+      const keyInput = document.getElementById('geminiApiKey');
+      const apiKey = keyInput ? keyInput.value.trim() : '';
 
       btn.disabled = true;
       spinner.style.display = 'inline-block';
@@ -1211,26 +1221,33 @@ def index():
         document.getElementById('btnDownload').innerText = `📥 Download ${data.output_filename}`;
         document.getElementById('markdownRaw').value = currentMarkdownText;
 
-        // Render Markdown with marked.js
+        // Render Markdown safely (with marked.js if loaded, or fallback pre block)
         const renderedContainer = document.getElementById('markdownRendered');
-        renderedContainer.innerHTML = marked.parse(currentMarkdownText);
+        if (typeof marked !== 'undefined') {
+          renderedContainer.innerHTML = marked.parse(currentMarkdownText);
+        } else {
+          renderedContainer.innerHTML = '<pre style="white-space: pre-wrap; color: #c9d1d9; font-family: monospace;">' +
+            currentMarkdownText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") + '</pre>';
+        }
 
-        // Render Mermaid Diagrams if present
-        const mermaidPreBlocks = renderedContainer.querySelectorAll('pre code.language-mermaid');
-        mermaidPreBlocks.forEach((codeBlock, idx) => {
-          const pre = codeBlock.parentElement;
-          const graphDefinition = codeBlock.innerText;
-          const mermaidDiv = document.createElement('div');
-          mermaidDiv.className = 'mermaid';
-          mermaidDiv.id = `mermaid-${idx}`;
-          mermaidDiv.innerHTML = graphDefinition;
-          pre.parentNode.replaceChild(mermaidDiv, pre);
-        });
+        // Render Mermaid Diagrams if library is present
+        if (typeof mermaid !== 'undefined') {
+          const mermaidPreBlocks = renderedContainer.querySelectorAll('pre code.language-mermaid');
+          mermaidPreBlocks.forEach((codeBlock, idx) => {
+            const pre = codeBlock.parentElement;
+            const graphDefinition = codeBlock.innerText;
+            const mermaidDiv = document.createElement('div');
+            mermaidDiv.className = 'mermaid';
+            mermaidDiv.id = `mermaid-${idx}`;
+            mermaidDiv.innerHTML = graphDefinition;
+            pre.parentNode.replaceChild(mermaidDiv, pre);
+          });
 
-        try {
-          mermaid.run();
-        } catch (mErr) {
-          console.warn('Mermaid rendering notice:', mErr);
+          try {
+            mermaid.run();
+          } catch (mErr) {
+            console.warn('Mermaid rendering notice:', mErr);
+          }
         }
 
         document.getElementById('previewCard').style.display = 'block';
