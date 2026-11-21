@@ -29,6 +29,12 @@ from typing import Optional, List, Dict, Any
 # Ensure project root is in Python module path
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from fastapi import FastAPI, HTTPException, Request, Response, Query, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
@@ -161,6 +167,7 @@ def health_check():
         "service": "readme-writer-agent",
         "platform": "vercel-ready",
         "version": "1.0.0",
+        "gemini_env_configured": bool(os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")),
         "security": {
             "path_traversal_protection": "active",
             "secret_redaction": "active",
@@ -940,16 +947,20 @@ def index():
 
         <!-- GEMINI API KEY INPUT (Visible when Gemini mode selected) -->
         <div id="geminiKeyContainer" class="api-key-box">
-          <label for="geminiApiKey" style="color: #d2a8ff; font-weight: 600; display: flex; justify-content: space-between;">
-            <span>🔑 Gemini API Key</span>
-            <span style="font-weight: 400; color: var(--text-muted); font-size: 11px;">Optional if set in server .env or Vercel</span>
-          </label>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label for="geminiApiKey" style="color: #d2a8ff; font-weight: 600; margin-bottom: 0;">
+              🔑 Gemini API Key
+            </label>
+            <span id="envKeyStatusBadge" class="badge" style="font-size: 11px; background: rgba(110, 118, 129, 0.2); color: var(--text-muted);">
+              Checking .env status...
+            </span>
+          </div>
           <div style="display: flex; gap: 8px; margin-top: 6px;">
-            <input type="password" id="geminiApiKey" placeholder="AIzaSy... (leave blank to use server environment key)" style="border-color: rgba(188, 140, 255, 0.4);">
+            <input type="password" id="geminiApiKey" placeholder="Auto-loaded from .env (leave blank or enter override key)" style="border-color: rgba(188, 140, 255, 0.4);">
             <button type="button" class="btn-secondary" onclick="toggleApiKeyVisibility()" style="padding: 0 14px; font-size: 13px;" title="Show/Hide API Key">👁️</button>
           </div>
-          <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 8px;">
-            🔒 <strong>Privacy & Resilience:</strong> Key is passed securely for your session and never logged. Automatic fallback to Local AST mode occurs if API quota is reached or network is unreachable.
+          <div style="font-size: 11.5px; color: var(--text-muted); margin-top: 8px; line-height: 1.5;">
+            🔒 <strong>Automatic .env Loading:</strong> The agent automatically reads <code>GEMINI_API_KEY</code> or <code>GOOGLE_API_KEY</code> directly from your <code>.env</code> file or Vercel Environment Variables. You can leave this input blank, or enter a custom key to override it for this session.
           </div>
         </div>
       </div>
@@ -1039,6 +1050,29 @@ def index():
     let currentSessionId = null;
     let currentMarkdownText = "";
     let currentOutputFilename = "README.md";
+
+    // Auto-probe server environment key status on load
+    window.addEventListener('DOMContentLoaded', () => {
+      fetch('/health')
+        .then(res => res.json())
+        .then(data => {
+          const badge = document.getElementById('envKeyStatusBadge');
+          const input = document.getElementById('geminiApiKey');
+          if (!badge || !input) return;
+          if (data.gemini_env_configured) {
+            badge.className = 'badge badge-green';
+            badge.innerHTML = '🟢 Detected in .env / Vercel';
+            input.placeholder = 'Auto-loaded from .env (leave blank or enter override)';
+          } else {
+            badge.className = 'badge';
+            badge.style.background = 'rgba(210, 153, 34, 0.15)';
+            badge.style.color = '#e3b341';
+            badge.innerHTML = '⚪ Not in .env (enter key above)';
+            input.placeholder = 'AIzaSy... (enter your Gemini API key)';
+          }
+        })
+        .catch(e => console.warn('Health probe error:', e));
+    });
 
     function setEngine(engine) {
       currentEngine = engine;

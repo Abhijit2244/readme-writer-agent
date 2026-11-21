@@ -19,6 +19,12 @@ import urllib.request
 import urllib.error
 from typing import Optional, List, Dict, Any
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 
 class GeminiEnhancer:
     """
@@ -33,9 +39,15 @@ class GeminiEnhancer:
         Initializes the Gemini enhancer.
 
         Args:
-            api_key: Optional explicit API key. If omitted, checks os.environ['GEMINI_API_KEY'].
+            api_key: Optional explicit API key. If omitted, checks os.environ['GEMINI_API_KEY']
+                     or os.environ['GOOGLE_API_KEY'].
         """
-        self.api_key = (api_key or os.getenv("GEMINI_API_KEY", "")).strip()
+        # Automatically load from explicit argument, GEMINI_API_KEY, or GOOGLE_API_KEY in .env
+        self.api_key = (
+            api_key
+            or os.getenv("GEMINI_API_KEY", "")
+            or os.getenv("GOOGLE_API_KEY", "")
+        ).strip()
 
     def is_available(self) -> bool:
         """
