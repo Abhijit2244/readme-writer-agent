@@ -143,45 +143,102 @@ class ReadmeGenerator:
         ]
         return "\n".join(lines)
 
+    @staticmethod
+    def _format_aligned_table(headers: List[str], rows: List[List[str]], alignments: Optional[List[str]] = None) -> List[str]:
+        """
+        Renders a cleanly padded, vertically aligned Markdown table.
+
+        Calculates the maximum character width across all cells in each column,
+        padding each entry with whitespace so that vertical pipe delimiters '|'
+        align into straight columns in plain text, terminal views, and rendered markdown.
+        """
+        if not rows:
+            return []
+
+        if not alignments:
+            alignments = [":---"] * len(headers)
+
+        # Compute max width per column
+        col_widths = [len(h) for h in headers]
+        for row in rows:
+            for idx, cell in enumerate(row):
+                if idx < len(col_widths):
+                    col_widths[idx] = max(col_widths[idx], len(str(cell)))
+                else:
+                    col_widths.append(len(str(cell)))
+
+        # Ensure minimal padding width
+        col_widths = [max(w, 4) for w in col_widths]
+
+        # Format header row
+        header_cells = [headers[i].ljust(col_widths[i]) for i in range(len(headers))]
+        header_line = "| " + " | ".join(header_cells) + " |"
+
+        # Format separator row (e.g. :---, :---:, ---:)
+        sep_cells = []
+        for i, align in enumerate(alignments):
+            w = col_widths[i]
+            if align.startswith(":") and align.endswith(":"):
+                sep = ":" + "-" * max(1, w - 2) + ":"
+            elif align.endswith(":"):
+                sep = "-" * max(1, w - 1) + ":"
+            else:
+                sep = ":" + "-" * max(1, w - 1)
+            sep_cells.append(sep)
+        sep_line = "| " + " | ".join(sep_cells) + " |"
+
+        # Format data rows
+        data_lines = []
+        for row in rows:
+            cells = []
+            for i in range(len(headers)):
+                cell_val = str(row[i]) if i < len(row) else ""
+                cells.append(cell_val.ljust(col_widths[i]))
+            data_lines.append("| " + " | ".join(cells) + " |")
+
+        return [header_line, sep_line] + data_lines
+
     def _build_tech_stack_table(self) -> str:
         """
-        Constructs a clean 2-column Technology-Purpose table matching let-the-wheel-decide.
+        Constructs a clean 2-column Technology-Purpose table matching let-the-wheel-decide
+        with pristine vertical column alignment.
         """
         stack = self.metadata.tech_stack
-        lines = [
-            "## 🛠️ Tech Stack",
-            "",
-            "| Technology | Purpose |",
-            "|---|---|"
-        ]
+        headers = ["Technology", "Purpose"]
+        rows = []
 
         # Primary language
-        lines.append(f"| {stack.primary_language} | Core application runtime & logic |")
+        rows.append([stack.primary_language, "Core application runtime & logic"])
 
         # Package manager
         if stack.package_managers:
             pm = ", ".join(stack.package_managers)
-            lines.append(f"| {pm} | Package management & dependency resolution |")
+            rows.append([pm, "Package management & dependency resolution"])
 
         # Frameworks
         for fw in stack.frameworks:
-            lines.append(f"| {fw} | Application framework & service orchestration |")
+            rows.append([fw, "Application framework & service orchestration"])
 
         # Testing
         if stack.testing_tools:
             tt = ", ".join(stack.testing_tools)
-            lines.append(f"| {tt} | Automated test runner & regression verification |")
+            rows.append([tt, "Automated test runner & regression verification"])
         else:
-            lines.append(f"| Built-in Test Suite | Behavioral stability verification |")
+            rows.append(["Built-in Test Suite", "Behavioral stability verification"])
 
         # Key dependencies
         for dep in stack.dependencies[:4]:
-            lines.append(f"| {dep} | Domain utility & functional processing |")
+            rows.append([dep, "Domain utility & functional processing"])
 
-        # Markdown & Documentation
-        lines.append("| GitHub Flavored Markdown | Standardized documentation specification |")
-        lines.append("| Mermaid.js | Interactive architectural flowcharts |")
+        # Documentation
+        rows.append(["GitHub Flavored Markdown", "Standardized documentation specification"])
+        rows.append(["Mermaid.js", "Interactive architectural flowcharts"])
 
+        table_lines = self._format_aligned_table(headers, rows, [":---", ":---"])
+        lines = [
+            "## 🛠️ Tech Stack",
+            ""
+        ] + table_lines
         return "\n".join(lines)
 
     def _build_preview_section(self) -> str:
@@ -306,39 +363,52 @@ class ReadmeGenerator:
 
     def _build_function_commentary_table(self) -> str:
         """
-        Generates the Comprehensive Component & Function Reference Table with commentary on what it wrote!
+        Generates the Comprehensive Component & Function Reference Table with commentary
+        and pristine column alignment (without the redundant file location column).
 
         Operational Mechanics:
-        Iterates through all discovered classes, methods, and functions, compiling an
-        exhaustive documentation table with parameter signatures and operational comments.
+        1. Iterates through all discovered classes, methods, and functions.
+        2. Compiles rows with Component Name, Parameters, and Operational Commentary.
+        3. Formats parameters cleanly.
+        4. Applies _format_aligned_table to align every pipe delimiter '|' into straight columns.
         """
         lines = [
             "## 🔍 Function & Component Reference Guide",
             "",
             "The table below details the key functions, classes, and methods discovered across the codebase, "
             "along with operational commentary on what each component does:",
-            "",
-            "| Component / Function | File Location | Parameters | Operational Purpose & Commentary |",
-            "|:---|:---|:---|:---|"
+            ""
         ]
 
+        headers = ["Component / Function", "Parameters", "Operational Purpose & Commentary"]
+        alignments = [":---", ":---", ":---"]
+
         if not self.metadata.all_entities:
-            lines.append("| `main()` | `main.py:1` | `*(None)*` | Primary execution entry point. |")
-            return "\n".join(lines)
+            rows = [["`main()`", "*(None)*", "Primary application execution entry point."]]
+        else:
+            rows = []
+            for entity in self.metadata.all_entities[:30]:
+                if entity.entity_type == "class":
+                    name_display = f"**{entity.name}** *(Class)*"
+                else:
+                    name_display = f"`{entity.name}()`"
 
-        for entity in self.metadata.all_entities[:25]:
-            name_display = f"`{entity.name}()`" if entity.entity_type != "class" else f"**{entity.name}** *(Class)*"
-            loc_display = f"`{entity.file_path}:{entity.line_number}`"
-            params_display = ", ".join(entity.parameters[:3]) if entity.parameters else "*(None)*"
-            if len(entity.parameters) > 3:
-                params_display += f" *(+{len(entity.parameters)-3} more)*"
+                if entity.parameters:
+                    param_str = ", ".join(entity.parameters[:3])
+                    if len(entity.parameters) > 3:
+                        param_str += f", +{len(entity.parameters)-3} more"
+                    params_display = f"`{param_str}`"
+                else:
+                    params_display = "*(None)*"
 
-            clean_commentary = entity.commentary.replace("|", "-").replace("\n", " ").strip()
-            if not clean_commentary:
-                clean_commentary = f"Executes {entity.name} operations."
+                clean_commentary = re.sub(r'\s+', ' ', entity.commentary.replace("|", "-").strip())
+                if not clean_commentary:
+                    clean_commentary = f"Executes {entity.name} operations."
 
-            lines.append(f"| {name_display} | {loc_display} | `{params_display}` | {clean_commentary} |")
+                rows.append([name_display, params_display, clean_commentary])
 
+        table_lines = self._format_aligned_table(headers, rows, alignments)
+        lines.extend(table_lines)
         return "\n".join(lines)
 
     def _build_architecture_mermaid(self) -> str:

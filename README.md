@@ -4,7 +4,7 @@
 
 Readme Writer Agent is a modular, high-reliability software system built with Python. It provides clean separation of concerns, comprehensive automated testing, and deterministic execution tailored for developers and teams demanding scalable performance.
 
-< [🚀 **Project Repository**](https://github.com/Abhijit2244/readme-writer-agent) >
+< [**Project Repository**](https://github.com/Abhijit2244/readme-writer-agent) >
 
 Whether you are integrating into existing CI/CD workflows, developing custom modules, or deploying standalone services, Readme Writer Agent delivers an intuitive, well-documented experience.
 
@@ -36,15 +36,15 @@ Whether you are integrating into existing CI/CD workflows, developing custom mod
 
 ## 🛠️ Tech Stack
 
-| Technology | Purpose |
-|---|---|
-| Python | Core application runtime & logic |
-| pip | Package management & dependency resolution |
-| pytest / unittest | Automated test runner & regression verification |
-| colorama | Domain utility & functional processing |
-| python-dotenv | Domain utility & functional processing |
-| GitHub Flavored Markdown | Standardized documentation specification |
-| Mermaid.js | Interactive architectural flowcharts |
+| Technology               | Purpose                                         |
+| :----------------------- | :---------------------------------------------- |
+| Python                   | Core application runtime & logic                |
+| pip                      | Package management & dependency resolution      |
+| pytest / unittest        | Automated test runner & regression verification |
+| colorama                 | Domain utility & functional processing          |
+| python-dotenv            | Domain utility & functional processing          |
+| GitHub Flavored Markdown | Standardized documentation specification        |
+| Mermaid.js               | Interactive architectural flowcharts            |
 
 ---
 
@@ -113,6 +113,9 @@ python test_readme_agent.py
 
 ```text
 readme-writer-agent/
+├── .env
+├── .env.example
+├── .gitignore
 ├── README.md
 ├── main.py
 ├── requirements.txt
@@ -133,33 +136,38 @@ readme-writer-agent/
 
 The table below details the key functions, classes, and methods discovered across the codebase, along with operational commentary on what each component does:
 
-| Component / Function | File Location | Parameters | Operational Purpose & Commentary |
-|:---|:---|:---|:---|
-| **ReadmeWriterAgent** *(Class)* | `core/agent.py:19` | `*(None)*` | Autonomous agent responsible for inspecting repositories and generating production-ready READMEs. |
-| `ReadmeWriterAgent.__init__()` | `core/agent.py:24` | `verbose` | Initializes the README Writer Agent. |
-| `ReadmeWriterAgent.register_callback()` | `core/agent.py:34` | `callback` | Attaches an observer callback to receive live telemetry events. |
-| `ReadmeWriterAgent._notify()` | `core/agent.py:43` | `event_type, data` | Broadcasts an operational telemetry event to all registered listeners. |
-| `ReadmeWriterAgent.run()` | `core/agent.py:53` | `repo_path, force, custom_output_name` | Executes the end-to-end README generation workflow. |
-| **CodeAnalyzer** *(Class)* | `core/analyzer.py:18` | `*(None)*` | Statically analyzes source code files to extract entities and generate functional summaries. |
-| `CodeAnalyzer.__init__()` | `core/analyzer.py:23` | `repo_path` | Initializes the code analyzer. |
-| `CodeAnalyzer.analyze_file()` | `core/analyzer.py:32` | `rel_path` | Routes a source file to the appropriate static analyzer based on file extension. |
-| `CodeAnalyzer._analyze_python_ast()` | `core/analyzer.py:67` | `rel_path, content, line_count` | Parses Python code using the official Abstract Syntax Tree (ast) standard library. |
-| `CodeAnalyzer._detect_route_decorator()` | `core/analyzer.py:189` | `node` | Inspects function decorators for FastAPI / Flask HTTP route definitions. |
-| `CodeAnalyzer._analyze_polyglot_regex()` | `core/analyzer.py:205` | `rel_path, content, ext *(+1 more)*` | Regex-based signature parser for JavaScript, TypeScript, Go, Rust, and Shell. |
-| `CodeAnalyzer._synthesize_functional_commentary()` | `core/analyzer.py:278` | `entity_name, entity_type, docstring *(+1 more)*` | Generates clean, human-readable commentary describing what a function/class does. |
-| **ReadmeGenerator** *(Class)* | `core/generator.py:30` | `*(None)*` | Synthesizes structural repository metadata into production-grade GitHub-Flavored Markdown. |
-| `ReadmeGenerator.__init__()` | `core/generator.py:35` | `metadata` | Initializes the README generator with repository inspection metadata. |
-| `ReadmeGenerator.generate_markdown()` | `core/generator.py:44` | `*(None)*` | Orchestrates full assembly of all standard production README sections. |
-| `ReadmeGenerator._build_header()` | `core/generator.py:71` | `*(None)*` | Generates repository title, bold tagline, overview synopsis, and demo badge. |
-| `ReadmeGenerator._build_features()` | `core/generator.py:113` | `*(None)*` | Compiles highlighted features grouped into rich thematic subsections with emojis, |
-| `ReadmeGenerator._build_tech_stack_table()` | `core/generator.py:146` | `*(None)*` | Constructs a clean 2-column Technology-Purpose table matching let-the-wheel-decide. |
-| `ReadmeGenerator._build_preview_section()` | `core/generator.py:187` | `*(None)*` | Generates screenshot and UI preview placeholders. |
-| `ReadmeGenerator._build_getting_started()` | `core/generator.py:203` | `*(None)*` | Generates numbered, step-by-step local setup instructions matching let-the-wheel-decide: |
-| `ReadmeGenerator._build_file_tree()` | `core/generator.py:294` | `*(None)*` | Formats the ASCII directory hierarchy tree. |
-| `ReadmeGenerator._build_function_commentary_table()` | `core/generator.py:307` | `*(None)*` | Generates the Comprehensive Component & Function Reference Table with commentary on what it wrote! |
-| `ReadmeGenerator._build_architecture_mermaid()` | `core/generator.py:344` | `*(None)*` | Constructs an interactive Mermaid flowchart representing the high-level codebase architecture. |
-| `ReadmeGenerator._build_how_to_use()` | `core/generator.py:371` | `*(None)*` | Generates numbered "How to Use" user journey steps. |
-| `ReadmeGenerator._build_future_improvements()` | `core/generator.py:385` | `*(None)*` | Generates future improvements checklist with interactive markdown checkboxes. |
+| Component / Function                                 | Parameters                                     | Operational Purpose & Commentary                                                                  |
+| :--------------------------------------------------- | :--------------------------------------------- | :------------------------------------------------------------------------------------------------ |
+| **ReadmeWriterAgent** *(Class)*                      | *(None)*                                       | Autonomous agent responsible for inspecting repositories and generating production-ready READMEs. |
+| `ReadmeWriterAgent.__init__()`                       | `verbose`                                      | Initializes the README Writer Agent.                                                              |
+| `ReadmeWriterAgent.register_callback()`              | `callback`                                     | Attaches an observer callback to receive live telemetry events.                                   |
+| `ReadmeWriterAgent._notify()`                        | `event_type, data`                             | Broadcasts an operational telemetry event to all registered listeners.                            |
+| `ReadmeWriterAgent.run()`                            | `repo_path, force, custom_output_name`         | Executes the end-to-end README generation workflow.                                               |
+| **CodeAnalyzer** *(Class)*                           | *(None)*                                       | Statically analyzes source code files to extract entities and generate functional summaries.      |
+| `CodeAnalyzer.__init__()`                            | `repo_path`                                    | Initializes the code analyzer.                                                                    |
+| `CodeAnalyzer.analyze_file()`                        | `rel_path`                                     | Routes a source file to the appropriate static analyzer based on file extension.                  |
+| `CodeAnalyzer._analyze_python_ast()`                 | `rel_path, content, line_count`                | Parses Python code using the official Abstract Syntax Tree (ast) standard library.                |
+| `CodeAnalyzer._detect_route_decorator()`             | `node`                                         | Inspects function decorators for FastAPI / Flask HTTP route definitions.                          |
+| `CodeAnalyzer._analyze_polyglot_regex()`             | `rel_path, content, ext, +1 more`              | Regex-based signature parser for JavaScript, TypeScript, Go, Rust, and Shell.                     |
+| `CodeAnalyzer._synthesize_functional_commentary()`   | `entity_name, entity_type, docstring, +1 more` | Generates clean, human-readable commentary describing what a function/class does.                 |
+| **ReadmeGenerator** *(Class)*                        | *(None)*                                       | Synthesizes structural repository metadata into production-grade GitHub-Flavored Markdown.        |
+| `ReadmeGenerator.__init__()`                         | `metadata`                                     | Initializes the README generator with repository inspection metadata.                             |
+| `ReadmeGenerator.generate_markdown()`                | *(None)*                                       | Orchestrates full assembly of all standard production README sections.                            |
+| `ReadmeGenerator._build_header()`                    | *(None)*                                       | Generates repository title, bold tagline, overview synopsis, and demo badge.                      |
+| `ReadmeGenerator._build_features()`                  | *(None)*                                       | Compiles highlighted features grouped into rich thematic subsections with emojis,                 |
+| `ReadmeGenerator._format_aligned_table()`            | `headers, rows, alignments`                    | Renders a cleanly padded, vertically aligned Markdown table.                                      |
+| `ReadmeGenerator._build_tech_stack_table()`          | *(None)*                                       | Constructs a clean 2-column Technology-Purpose table matching let-the-wheel-decide                |
+| `ReadmeGenerator._build_preview_section()`           | *(None)*                                       | Generates screenshot and UI preview placeholders.                                                 |
+| `ReadmeGenerator._build_getting_started()`           | *(None)*                                       | Generates numbered, step-by-step local setup instructions matching let-the-wheel-decide:          |
+| `ReadmeGenerator._build_file_tree()`                 | *(None)*                                       | Formats the ASCII directory hierarchy tree.                                                       |
+| `ReadmeGenerator._build_function_commentary_table()` | *(None)*                                       | Generates the Comprehensive Component & Function Reference Table with commentary                  |
+| `ReadmeGenerator._build_architecture_mermaid()`      | *(None)*                                       | Constructs an interactive Mermaid flowchart representing the high-level codebase architecture.    |
+| `ReadmeGenerator._build_how_to_use()`                | *(None)*                                       | Generates numbered "How to Use" user journey steps.                                               |
+| `ReadmeGenerator._build_future_improvements()`       | *(None)*                                       | Generates future improvements checklist with interactive markdown checkboxes.                     |
+| `ReadmeGenerator._build_contributing()`              | *(None)*                                       | Generates standardized Git branch-and-PR contributing guidelines matching let-the-wheel-decide.   |
+| `ReadmeGenerator._build_license_and_author()`        | *(None)*                                       | Generates License, Author attribution, and star callout matching let-the-wheel-decide.            |
+| **CodeEntity** *(Class)*                             | *(None)*                                       | Represents an extracted function, method, or class within a source code file.                     |
+| **ModuleAnalysis** *(Class)*                         | *(None)*                                       | Represents structural code analysis of an individual source file.                                 |
 
 ---
 
