@@ -176,13 +176,19 @@ export default function App() {
         body: body,
       });
 
-      const data = await res.json();
+      let data: any = {};
+      try {
+        data = await res.json();
+      } catch (jsonErr) {
+        data = { detail: `Server response error (${res.status} ${res.statusText})` };
+      }
+
       if (!res.ok) {
         setAlert({
-          message: data.detail || 'Generation request was blocked or encountered an error.',
+          message: data.detail || `Request failed with status ${res.status}`,
           type: 'error',
         });
-        setTelemetryLogs((prev) => [...prev, { type: 'ERROR', data: data.detail || 'Server error' }]);
+        setTelemetryLogs((prev) => [...prev, { type: 'ERROR', data: data.detail || `HTTP ${res.status} ${res.statusText}` }]);
         setIsGenerating(false);
         return;
       }

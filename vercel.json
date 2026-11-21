@@ -9,16 +9,16 @@
   },
   "rewrites": [
     {
-      "source": "/api/(.*)",
-      "destination": "/api"
-    },
-    {
-      "source": "/api",
-      "destination": "/api"
+      "source": "/api/:path*",
+      "destination": "/api/index.py?__vpath=:path*"
     },
     {
       "source": "/health",
-      "destination": "/api"
+      "destination": "/api/index.py?__vpath=health"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
     }
   ]
 }

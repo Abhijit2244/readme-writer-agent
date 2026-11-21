@@ -404,6 +404,73 @@ def download_readme(session_id: str = Query(..., description="Session identifier
 
 
 # --------------------------------------------------------------------------
+# UNIFIED BASE / VERCEL REWRITE DISPATCHERS
+# --------------------------------------------------------------------------
+@app.get("/api")
+@app.get("/api/")
+@app.get("/api/index.py")
+def api_root_status(request: Request):
+    """Health, status, and download inspection when hitting the base /api endpoint."""
+    session_id = request.query_params.get("session_id")
+    if session_id:
+        return download_readme(session_id=session_id)
+    return {
+        "status": "healthy",
+        "service": "Autonomous README Writer Agent API",
+        "version": "1.0.0",
+        "endpoints": [
+            "/api/generate-github",
+            "/api/generate",
+            "/api/validate",
+            "/api/upload-zip",
+            "/api/download",
+            "/api/health"
+        ]
+    }
+
+
+@app.post("/api")
+@app.post("/api/")
+@app.post("/api/index.py")
+@app.post("/api/index")
+async def api_root_dispatch(request: Request):
+    """
+    Unified fallback dispatcher for Vercel rewrites where the subpath is normalized to /api.
+    Inspects incoming payload to transparently route to the right generator function.
+    """
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        file = form.get("file")
+        force = str(form.get("force", "false")).lower() in ("true", "1")
+        use_gemini = str(form.get("use_gemini", "false")).lower() in ("true", "1")
+        gemini_api_key = form.get("gemini_api_key")
+        return await generate_readme_from_zip(
+            file=file,
+            force=force,
+            use_gemini=use_gemini,
+            gemini_api_key=gemini_api_key
+        )
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON body or missing content-type.")
+
+    if "github_url" in body:
+        req = GitHubGenerateRequest(**body)
+        return generate_readme_from_github(req)
+    elif "repo_path" in body and body.get("validate_only"):
+        req = ValidateRequest(**body)
+        return validate_repository(req)
+    elif "repo_path" in body:
+        req = GenerateRequest(**body)
+        return generate_readme(req)
+    else:
+        raise HTTPException(status_code=400, detail=f"Unrecognized payload fields: {list(body.keys())}")
+
+
+# --------------------------------------------------------------------------
 # SINGLE-PAGE WEB INTERFACE (HTML, CSS, JAVASCRIPT)
 # --------------------------------------------------------------------------
 @app.get("/")
@@ -1321,11 +1388,17 @@ def index():
     return HTMLResponse(content=html_content)
 
 
-@app.get("/{full_path:path}")
-def serve_react_assets(full_path: str):
+@app.api_route("/{full_path:path}", methods=["GET", "POST", "PUT", "DELETE"])
+async def serve_react_assets(request: Request, full_path: str):
     """Fallback route to serve static files from React build directory or SPA index."""
-    if full_path.startswith("api/") or full_path == "health":
-        raise HTTPException(status_code=404, detail="API route not found")
+    if full_path.startswith("api") or full_path == "health":
+        if request.method == "POST":
+            return await api_root_dispatch(request)
+        if request.method == "GET" and full_path == "health":
+            return health_check()
+        raise HTTPException(status_code=404, detail=f"API route '/{full_path}' not found")
+    if request.method != "GET":
+        raise HTTPException(status_code=405, detail=f"Method {request.method} not allowed for static assets")
     candidate = os.path.join(DIST_DIR, full_path)
     if os.path.exists(candidate) and os.path.isfile(candidate):
         return FileResponse(candidate)

@@ -8,6 +8,7 @@ Includes defensive path resolution, ASGI path normalization, and startup error r
 import sys
 import os
 import traceback
+import urllib.parse
 
 # Add all relevant candidate roots to sys.path so server and core are always discoverable
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -31,17 +32,32 @@ try:
 
         async def __call__(self, scope, receive, send):
             if scope.get("type") == "http":
-                headers = dict(scope.get("headers", []))
-                
-                # Check for Vercel's internal matched path headers
-                matched = headers.get(b"x-matched-path") or headers.get(b"x-invoke-path")
-                if matched:
-                    matched_str = matched.decode("latin-1")
-                    # If Vercel rewrote the subpath to the entrypoint, restore the real target
-                    curr_path = scope.get("path", "")
-                    if curr_path in ("/api/index.py", "/api/index", "/api", "/api/"):
-                        scope["path"] = matched_str
-                        scope["raw_path"] = matched_str.encode("latin-1")
+                raw_query = scope.get("query_string", b"").decode("latin-1")
+
+                # 1. Check if Vercel passed path via query parameter: ?__vpath=...
+                if "__vpath=" in raw_query:
+                    params = dict(qc.split("=", 1) for qc in raw_query.split("&") if "=" in qc)
+                    if "__vpath" in params:
+                        vpath = urllib.parse.unquote(params["__vpath"]).lstrip("/")
+                        norm_path = f"/api/{vpath}" if not vpath.startswith("api/") else f"/{vpath}"
+                        scope["path"] = norm_path
+                        scope["raw_path"] = norm_path.encode("latin-1")
+                        # Strip __vpath from query string so endpoints don't see internal parameter
+                        clean_params = [qc for qc in raw_query.split("&") if not qc.startswith("__vpath=")]
+                        scope["query_string"] = "&".join(clean_params).encode("latin-1")
+
+                # 2. If path is generic entrypoint (/api, /api/index.py), check Vercel headers
+                curr_path = scope.get("path", "")
+                if curr_path in ("/api/index.py", "/api/index", "/api", "/api/"):
+                    headers = dict(scope.get("headers", []))
+                    for h_name in [b"x-forwarded-uri", b"x-real-path", b"x-vercel-forwarded-path", b"x-matched-path", b"x-invoke-path"]:
+                        val = headers.get(h_name)
+                        if val:
+                            val_str = val.decode("latin-1").split("?")[0].strip()
+                            if val_str and val_str not in ("/api/index.py", "/api/index", "/api", "/api/"):
+                                scope["path"] = val_str
+                                scope["raw_path"] = val_str.encode("latin-1")
+                                break
 
             await self.asgi_app(scope, receive, send)
 
