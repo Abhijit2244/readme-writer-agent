@@ -26,11 +26,13 @@ except ImportError:
     pass
 
 try:
-    from colorama import init, Fore, Style
-    init(autoreset=True)
+    import colorama
+    colorama.init(autoreset=True)
+    Fore: Any = colorama.Fore
+    Style: Any = colorama.Style
 except ImportError:
-    # Minimal ANSI fallback if colorama is not installed
-    class Fore:
+    # Minimal ANSI fallback object if colorama is not installed
+    class _AnsiFallback:
         CYAN = "\033[36m"
         GREEN = "\033[32m"
         YELLOW = "\033[33m"
@@ -38,9 +40,11 @@ except ImportError:
         MAGENTA = "\033[35m"
         BLUE = "\033[34m"
         RESET = "\033[0m"
-    class Style:
         BRIGHT = "\033[1m"
         RESET_ALL = "\033[0m"
+
+    Fore: Any = _AnsiFallback()
+    Style: Any = _AnsiFallback()
 
 from core.agent import ReadmeWriterAgent
 
