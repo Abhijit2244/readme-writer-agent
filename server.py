@@ -63,7 +63,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -180,6 +180,7 @@ def _execute_agent_on_dir(
 # API ENDPOINTS
 # --------------------------------------------------------------------------
 @app.get("/health")
+@app.get("/api/health")
 def health_check():
     """Healthcheck endpoint for container orchestration, Vercel, and uptime monitors."""
     return {
@@ -198,6 +199,7 @@ def health_check():
 
 
 @app.post("/api/validate")
+@app.post("/validate")
 def validate_repository(req: ValidateRequest):
     """
     Performs perimeter security checks and inspects target directory safely
@@ -231,6 +233,7 @@ def validate_repository(req: ValidateRequest):
 
 
 @app.post("/api/generate")
+@app.post("/generate")
 def generate_readme(req: GenerateRequest):
     """Generates README for a local filesystem path (with perimeter security checks)."""
     is_safe, canonical_path, error_msg = SecurityValidator.validate_repo_path(req.repo_path)
@@ -251,6 +254,7 @@ def generate_readme(req: GenerateRequest):
 
 
 @app.post("/api/generate-github")
+@app.post("/generate-github")
 def generate_readme_from_github(req: GitHubGenerateRequest):
     """
     Fetches a public GitHub repository zipball, extracts it safely in serverless /tmp,
@@ -323,6 +327,7 @@ def generate_readme_from_github(req: GitHubGenerateRequest):
 
 
 @app.post("/api/upload-zip")
+@app.post("/upload-zip")
 async def generate_readme_from_zip(
     file: UploadFile = File(...),
     force: bool = Form(False),
@@ -381,6 +386,7 @@ async def generate_readme_from_zip(
 
 
 @app.get("/api/download")
+@app.get("/download")
 def download_readme(session_id: str = Query(..., description="Session identifier from generation")):
     """Directly downloads the generated markdown documentation file."""
     if session_id not in SESSION_CACHE:
@@ -1318,6 +1324,8 @@ def index():
 @app.get("/{full_path:path}")
 def serve_react_assets(full_path: str):
     """Fallback route to serve static files from React build directory or SPA index."""
+    if full_path.startswith("api/") or full_path == "health":
+        raise HTTPException(status_code=404, detail="API route not found")
     candidate = os.path.join(DIST_DIR, full_path)
     if os.path.exists(candidate) and os.path.isfile(candidate):
         return FileResponse(candidate)

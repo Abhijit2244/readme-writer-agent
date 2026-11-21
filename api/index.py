@@ -2,7 +2,7 @@
 Vercel Serverless Function Entry Point
 ======================================
 Exposes the FastAPI application object for Vercel's Python runtime (@vercel/python).
-Includes defensive path resolution and startup error reporting.
+Includes defensive path resolution, ASGI path normalization, and startup error reporting.
 """
 
 import sys
@@ -19,7 +19,34 @@ for candidate in [PROJECT_ROOT, CURRENT_DIR, LAMBDA_TASK_ROOT]:
         sys.path.insert(0, candidate)
 
 try:
-    from server import app
+    from server import app as fastapi_app
+
+    class VercelPathNormalizer:
+        """
+        ASGI Middleware that restores the real incoming client request path
+        when Vercel rewrites incoming traffic to /api/index.py.
+        """
+        def __init__(self, asgi_app):
+            self.asgi_app = asgi_app
+
+        async def __call__(self, scope, receive, send):
+            if scope.get("type") == "http":
+                headers = dict(scope.get("headers", []))
+                
+                # Check for Vercel's internal matched path headers
+                matched = headers.get(b"x-matched-path") or headers.get(b"x-invoke-path")
+                if matched:
+                    matched_str = matched.decode("latin-1")
+                    # If Vercel rewrote the subpath to the entrypoint, restore the real target
+                    curr_path = scope.get("path", "")
+                    if curr_path in ("/api/index.py", "/api/index", "/api", "/api/"):
+                        scope["path"] = matched_str
+                        scope["raw_path"] = matched_str.encode("latin-1")
+
+            await self.asgi_app(scope, receive, send)
+
+    app = VercelPathNormalizer(fastapi_app)
+
 except Exception as e:
     err_tb = traceback.format_exc()
     print("FATAL ERROR IN VERCEL SERVERLESS STARTUP:\n" + err_tb, file=sys.stderr)
