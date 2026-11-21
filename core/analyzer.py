@@ -11,7 +11,7 @@ All functions contain comprehensive educational commentary on how static code pa
 import ast
 import os
 import re
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from core.models import CodeEntity, ModuleAnalysis
 from core.security import SecurityValidator
 
